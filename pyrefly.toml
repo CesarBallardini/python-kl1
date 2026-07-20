@@ -1,0 +1,16 @@
+# Second type checker, run alongside pyright on purpose -- not a migration.
+# A handful of `# type: ignore` suppressions pyright needs for genuinely
+# hard-to-type cases (dynamic **kwargs configs, classic/imperative ORM
+# mapping) are honored by pyrefly's default ignore-handling too, so both
+# checkers are kept in parity deliberately: two different inference engines
+# over the same code tend to catch different things.
+#
+# pyrefly is young and its config schema evolves -- check
+# https://pyrefly.org/ for the current keys before relying on this file.
+
+project-includes = ["src", "tests", "examples"]
+# pyrefly can't resolve the root-level `examples.*` package without also exposing `src`
+# as a duplicate `src.python_kl1.*` package, so the one test that imports the example
+# programs is excluded here; pyright type-checks it instead.
+project-excludes = ["tests/unit/test_examples.py"]
+python-version = "3.14"

@@ -1,0 +1,54 @@
+[project]
+name = "python-kl1"
+version = "0.1.0"
+description = "KL1-style concurrent (Guarded Horn Clauses) multi-threaded programming for Python, on a tooling-first scaffold: linting, type checking, testing, and security wired up from day one."
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/python_kl1"]
+
+[dependency-groups]
+dev = [
+    "bandit[toml]",
+    "factory-boy",
+    "faker",
+    "import-linter",
+    "pip-audit",
+    "pre-commit",
+    "pyrefly",
+    "pyright",
+    "pytest>=8",
+    "pytest-bdd",
+    "pytest-cov",
+    "pytest-playwright",
+    "pytest-xdist",
+    "ruff",
+]
+deploy = [
+    "docker",
+]
+
+# pytest configuration lives in `pytest.ini`.
+
+# Architectural layer enforcement (see the README appendix). Higher layers may import
+# lower ones, never the reverse. Type-only imports (in `if TYPE_CHECKING:` blocks) are the
+# deliberate back-references that keep the *runtime* graph acyclic, so they are excluded.
+[tool.importlinter]
+root_package = "python_kl1"
+exclude_type_checking_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Layered architecture"
+type = "layers"
+layers = [
+    "python_kl1.dsl",
+    "python_kl1.core.goal | python_kl1.core.stream | python_kl1.core.engine",
+    "python_kl1.core.logicvar",
+    "python_kl1.core.terms",
+]
