@@ -10,6 +10,10 @@ processes communicate only through shared **single-assignment logic variables** 
 synchronize by **data-flow**: a goal suspends until the data it needs is bound. No locks,
 no shared mutable state, no backtracking.
 
+> **New here?** Start with the **[tutorial](tutorial.md)** — the concepts, setup, the
+> eager-vs-`session` calling styles, streaming to/from ordinary Python, and when this style
+> is a good fit for your code.
+
 See [`python-kl1-general.md`](python-kl1-general.md) for the
 findings and design notes distilled from the KLIC reference implementation.
 
@@ -80,6 +84,7 @@ src/python_kl1/
                   #   list + functor patterns; calling a relation (eager) or session (lazy)
 examples/         # not_gate, factorial, sieve, bank_account (ports of the KL1 originals)
 tests/            # unit tests per module
+tutorial.md       # hands-on guide: concepts, setup, calling styles, when to use it
 python-kl1-general.md   # KL1 findings + library design notes
 tooling.md        # development tooling (uv, ruff, type checkers, tests, security)
 ```
