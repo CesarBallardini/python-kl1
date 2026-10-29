@@ -45,6 +45,11 @@ make security         # bandit + pip-audit --skip-editable + osv-scanner
 make precommit        # run all pre-commit hooks by hand
 ```
 
+`make examples` is also what CI's `pytest.yml` runs after the test suite. It takes a few
+minutes rather than seconds, because `mastermind.py` (~100 s), `life.py` and `puzzle.py`
+(~20 s each) run their originals at full size; the unit tests cover the same programs on
+smaller instances in a few seconds.
+
 ## Updating dependencies
 
 By default, `uv run` and `uv sync` can re-resolve and rewrite `uv.lock` on their own if

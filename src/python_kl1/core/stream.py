@@ -9,8 +9,10 @@ binding and per-variable wake-lists.
 
 The goal is that these read like ordinary Python primitives and drop into
 ordinary Python code: :class:`Producer` is a context manager, :func:`stream_from`
-turns any iterable (or generator) into a stream, and :func:`drain` turns a
-suspending stream back into a plain Python iterator you can ``for``-loop over.
+turns any iterable (or generator) into a stream, :func:`drain` turns a
+suspending stream back into a plain Python iterator you can ``for``-loop over,
+and :func:`merge_streams` is KL1's many-to-one ``merge`` -- a fair fan-in of
+several streams into one -- built from the same per-variable waiters.
 """
 
 from __future__ import annotations
@@ -227,3 +229,38 @@ def filter_stream(engine: Engine, source: Var, pred: Test) -> Var:
 
     wait(source, out)
     return out
+
+
+def merge_streams(engine: Engine, *sources: Value) -> Var:
+    """Fair many-to-one merge: a new stream interleaving the elements of ``sources``.
+
+    KLIC's ``generic:new(merge, In, Out)``. Every source gets its own waiter, so an
+    element is forwarded as soon as it appears on *any* input, in arrival order -- on
+    the FIFO engine, ready sources interleave round-robin -- and a stalled producer
+    never holds the others up. The output closes once every source has closed (at
+    once, for no sources). Fan-in grows by nesting one merge inside another -- the
+    way KLIC's ``In = {In1, In2}`` split is written here -- so no central registry of
+    inputs is needed: a nested merge closes exactly when its own inputs have.
+    """
+    head, producer = open_stream()
+    open_sources = len(sources)
+
+    def wait(rest: Value) -> None:
+        def resume() -> None:
+            nonlocal open_sources
+            cell = deref(rest)
+            if cell is NIL:
+                open_sources -= 1
+                if open_sources == 0:
+                    producer.close()
+            elif isinstance(cell, Cons):
+                producer.put(cell.head)  # forward the term as is: a reply variable in a message stays shared
+                wait(cell.tail)
+
+        engine.when_bound(rest, resume)
+
+    if not sources:
+        producer.close()
+    for source in sources:
+        wait(source)
+    return head

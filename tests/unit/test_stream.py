@@ -3,6 +3,8 @@
 import pytest
 
 from python_kl1.core import (
+    NIL,
+    Cons,
     Engine,
     Value,
     close,
@@ -11,9 +13,11 @@ from python_kl1.core import (
     each,
     filter_stream,
     map_stream,
+    merge_streams,
     open_stream,
     put,
     stream_from,
+    to_list,
 )
 from python_kl1.core.logicvar import Var
 
@@ -156,3 +160,61 @@ def test_collect_list_fills_as_the_engine_runs() -> None:
 
     engine.run()
     assert result == [1, 2]
+
+
+@pytest.mark.unit
+def test_merge_interleaves_two_streams() -> None:
+    # merge_new.kl1: generic:new(merge, {S1, S2}, Merged), S1 = [a], S2 = [b].
+    engine = Engine()
+    merged = merge_streams(engine, stream_from(engine, ['a']), stream_from(engine, ['b']))
+
+    assert list(drain(engine, merged)) == ['a', 'b']
+
+
+@pytest.mark.unit
+def test_merge_forwards_each_input_as_it_arrives_and_closes_after_the_last() -> None:
+    engine = Engine()
+    left, right = Var(), Var()
+    merged = merge_streams(engine, left, right)
+    result = collect(engine, merged)
+    ended: list[bool] = []
+    each(engine, merged, lambda _item: None, lambda: ended.append(True))
+
+    close(put(left, 1))
+    engine.run()
+    assert result == [1]  # left's element went through while right is still unbound...
+    assert ended == []  # ...and the merge stays open for it
+
+    close(put(right, 2))
+    engine.run()
+    assert result == [1, 2]
+    assert ended == [True]
+
+
+@pytest.mark.unit
+def test_merge_of_no_streams_is_empty() -> None:
+    engine = Engine()
+
+    assert to_list(merge_streams(engine)) == []
+
+
+@pytest.mark.unit
+def test_merge_is_fair_between_ready_streams() -> None:
+    # Both inputs are complete up front; neither starves the other -- they alternate.
+    engine = Engine()
+    numbers = Cons(1, Cons(2, Cons(3, NIL)))
+    letters = Cons('a', Cons('b', Cons('c', NIL)))
+
+    assert list(drain(engine, merge_streams(engine, numbers, letters))) == [1, 'a', 2, 'b', 3, 'c']
+
+
+@pytest.mark.unit
+def test_nested_merges_fan_in_more_streams() -> None:
+    engine = Engine()
+    inner = merge_streams(engine, stream_from(engine, [2]), stream_from(engine, [3]))
+    merged = merge_streams(engine, stream_from(engine, [1]), inner)
+
+    items = list(drain(engine, merged))
+
+    assert len(items) == 3
+    assert set(items) == {1, 2, 3}
