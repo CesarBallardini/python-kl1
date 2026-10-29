@@ -363,6 +363,37 @@ In `examples/` (each also an executable test asserting the KL1 result):
   two `otherwise.` defaults become a guard-free `keep` clause after the skip clauses.
 - **`merge.py`** — `merge.kl1`: the **merge** primitive — K one-element streams fanned into one,
   counted, and checked to close; nested mergers stand in for KLIC's input vector.
+- **`pp.py`** — `pp.kl1`: the **nested-copy benchmark** — `p` and `r` wired into a feedback
+  loop (`p([N|L], M), r(M, L)`); `p` is the identity but routes every tail through two more
+  copies, so element k crosses 2^k processes: five clauses spawning thousands of fine-grained,
+  data-suspended goals.
+- **`puzzle.py`** — `puzzle.kl1` (E. Tick's 5×4×3 packing puzzle): an **all-solutions search as one
+  dataflow computation**, the solutions collected in difference lists chained through every piece
+  orientation; small pieces head-unify their footprint, large ones go through `match`, the codeword
+  template matcher that copies the board as it checks it. The 20 `pXYZ` / `fillN` predicates become
+  instances of three parameterised relations, and every `otherwise.` is a trailing guard-free clause
+  (safe: the board cells are always bound). `go()` = 65 (~20 s); `count_packings` poses smaller
+  boxes for the test.
+- **`mastermind.py`** — `mastermind.kl1`: **generate-and-test search** over the 3⁴ guesses with
+  a difference list of solutions (`go(3, 3)` = 860, the original's own count). Its `otherwise.`
+  defaults become **negated guards** (`Bulls < CL, N+1 >= NG`; `OldCows =\= Cows` /
+  `OldBulls =\= Bulls` as two clauses; `X =\= Y`; `N > 0`): `Bulls` / `Cows` arrive from a
+  concurrent `eval`, so a guard-free fallback would commit before they are bound — the rule of
+  thumb is in §7. The test asserts the reference-checked `go(2, 3)` = 81; `main()` runs
+  `go(3, 3)` (about 100 s, most of it Python's cyclic GC — see §7).
+- **`life.py`** — `life.kl1`, the 1987 "counterfeit" Game of Life: a 38×38 torus of **cell
+  processes**, each wired to four neighbours by two streams per direction and advancing with
+  **no world clock** (a cell steps as soon as one state from each neighbour has arrived).
+  Exercises torus wiring by unification (`connect_row`, `make_col`'s wrap clauses), 1444
+  long-lived processes and ~173 000 data-flow reductions; `go(120, 38, 38)` = 711,
+  cross-checked against a lockstep Python simulation on six shapes.
+- **`wave.py`** — `wave.kl1` (Foster's *Waves*): a **D × (D−2) × D block of `node` processes**
+  joined by `{In, Out}` stream pairs. A *wiring phase* first: face points send `step(N, S, A)`
+  requests that `filter`/`bfilter` route N hops inward, and a `done` token threaded through
+  every point is the barrier that releases `Go = go` only once every request is acknowledged;
+  then `Stop` rounds of read-all / count / write-all that sweep the block as a wavefront. The
+  port adds a result list so each of the 144 nodes (D = 6) reports its final state, `1 + Stop`;
+  the 2-vectors are `io/2` structs, `wait(Sync)` is `empty`, `integer(L)` is `guard(v >= 0)`.
 
 **N-Queens two ways (`kkqueen` vs `qlay`).** The two ports solve the same problem with
 different KL1 idioms:
@@ -379,7 +410,9 @@ different KL1 idioms:
 Both give the same counts (N=8 → 92) and, in the cooperative engine, comparable time at these
 sizes; the layered-streams sharing is what pays off at larger N. Notably, **neither needed
 `merge` or `otherwise`** — the guard disjunctions and ordered defaults both reduce to
-committed-choice ordering with a guard-free fallback clause (the same trick in both files).
+committed-choice ordering with a guard-free fallback clause (the same trick in both files, and
+in `puzzle`; it is safe there because the board is bound before the goal runs — §7 gives the
+rule for when it is not).
 
 The full backlog of unported programs — and which are blocked by a missing feature — is in
 Appendix C.
@@ -410,7 +443,20 @@ Still open:
 - API ergonomics: how close to the `Head :- Guard | Body` notation can we get in
   idiomatic Python without a parser?
 - **Priority / `@priority`, `otherwise`, `after(N)`** — scheduling/control annotations are
-  not exposed (the FIFO engine ignores priority).
+  not exposed (the FIFO engine ignores priority). `otherwise` can be *rendered* today, with
+  a rule of thumb: when everything the earlier clauses inspect is already bound, a trailing
+  guard-free clause is the default (`qlay`, `puzzle`) — but a guard-free clause commits as
+  soon as it is tried, even while the clauses above it are merely *suspended* on unbound
+  input, so when that input may still be on its way the negated guards have to be written
+  out (`mastermind`). A real `otherwise()` — a clause that waits until every clause above it
+  has *failed* — is the obvious next DSL feature; it would also unblock `turtles`.
+- **Cyclic-GC overhead at scale.** A breadth-first search keeps millions of small, mutually
+  referencing objects alive (goals, variables, waiters), and CPython's cyclic collector keeps
+  re-walking that frontier: `mastermind` `go(3, 3)` takes ~98 s with the collector on and
+  ~17 s with it frozen and disabled (`gc.freeze()` + `gc.disable()`); `go(2, 3)` ~4 s vs
+  ~1.5 s. Freezing after set-up, raising the thresholds, or shrinking the tracked object count
+  (`__slots__`, fewer closures) is the obvious engine-level win; the examples themselves have
+  nothing to fix.
 - **Relation inheritance** — clause collection uses a subclass's own methods only, so a
   `Relation` subclass does not inherit a parent's clauses.
 - **`unify` uses Python `==`**, so `1 == 1.0` unifies — a divergence from KL1's distinct
@@ -822,9 +868,9 @@ Everything else in KL1 is a pattern layered on top of that.
 
 ## Appendix C: KL1 programs not yet ported (the backlog)
 
-Eleven programs are now ported to `examples/` (see §6): `not`, `factorial`, `sieve` (from
-`primes_sieve`), `bank_account`, `qsort`, `hanoi`, `deriv`, `pascal`, `kkqueen`, `qlay`, and
-`merge`.
+Sixteen programs are now ported to `examples/` (see §6): `not`, `factorial`, `sieve` (from
+`primes_sieve`), `bank_account`, `qsort`, `hanoi`, `deriv`, `pascal`, `kkqueen`, `qlay`,
+`merge`, `pp`, `mastermind`, `puzzle`, `wave`, and `life`.
 This appendix analyses the rest — **✓ ported**, **○ feasible** with the current primitives (not yet
 written), or **✗ blocked** by a missing feature (summarised in §C.4).
 
@@ -840,13 +886,13 @@ Standalone `.kl1` programs shipped with KLIC (`fact` → `examples/factorial.py`
 | `pascal` | Pascal's triangle | ✓ `examples/pascal.py` |
 | `primes` | basic Sieve of Eratosthenes | ○ same as `sieve.py` |
 | `primesp` | the sieve with priorities | ○ = `sieve.py`; the `@lower_priority` hint is unsupported |
-| `pp` | nested-list generator (benchmark) | ○ feasible (list processing) |
+| `pp` | nested-list generator (benchmark) | ✓ `examples/pp.py` |
 | `kkqueen` | N-Queens (counts solutions) | ✓ `examples/kkqueen.py` (difference-list solutions — no `merge`) |
 | `qlay` | N-Queens via layered streams | ✓ `examples/qlay.py` |
-| `puzzle` | a combinatorial puzzle | ○ feasible (search) |
-| `mastermind` | Mastermind solver | ○ feasible (rewritable without `otherwise`) |
-| `wave` | a cellular "wave" simulation | ○ feasible (grid of relations) |
-| `life` | Conway's Game of Life | ○ feasible (grid of cell-relations; substantial) |
+| `puzzle` | a combinatorial puzzle | ✓ `examples/puzzle.py` (its `otherwise.` defaults become guard-free fallback clauses — the board is always bound) |
+| `mastermind` | Mastermind solver | ✓ `examples/mastermind.py` (its `otherwise.` defaults become explicit negated guards — the inputs arrive concurrently) |
+| `wave` | a cellular "wave" simulation | ✓ `examples/wave.py` (a result list of the final node states is added; the original only reports termination) |
+| `life` | Conway's Game of Life | ✓ `examples/life.py` (checked against a lockstep Python reference; `@lower_priority` ignored) |
 | `prio` | priority demo | ✗ needs `@priority` scheduling |
 | `turtles` | a tiling puzzle | ✗ needs `otherwise` (ordered default clause) |
 | `merge` | the `merge` builtin demo | ✓ `examples/merge.py` (nested mergers stand in for the input vector) |
@@ -908,6 +954,13 @@ The `✗` rows above, and much of §C.3, reduce to a handful of gaps (cf. §7):
 Functors (needed by `deriv`, the object pattern, and much of §C.3) are already available
 (`struct` / `unstruct`), and so now is **merge** (`merge` / `merge_streams`), which unblocks the
 shared-server and all-solutions fragments and the Ch. 6 search combiners; difference lists and
-streams need no new features. So the plan from here — the largest *unblocked* next steps — is
-**`puzzle`** (concurrent search), the **`wave`** / **`life`** cellular grids, and the §C.3
-fragments that merge unblocks (the shared-server agents of Ch. 5, the Ch. 6 search skeleton).
+streams need no new features. With `pp`, `puzzle`, `mastermind`, `wave` and `life` ported,
+every KLIC example the current primitives allow is in `examples/`. What is left in §C.1 is
+either blocked — `turtles` on `otherwise`, `prio` on priority scheduling, `iotest` / `client` /
+`server` on the I/O layer, `atomfunc` / `vecstr` / `cmac` on builtins and directives — or not
+worth a file of its own (`primes` / `primesp` are `sieve.py` again, the latter minus its
+priority hint; `parsetest` wants string builtins to be interesting). So the plan from here is
+the §C.3 fragments that merge unblocks (the shared-server agents of Ch. 5, the Ch. 6 search
+skeleton), and one feature: **`otherwise` is now the highest-value gap** — `puzzle` and
+`mastermind` had to render it by hand (§7 gives the rule of thumb), and it is all that stands
+between `turtles` and a port.

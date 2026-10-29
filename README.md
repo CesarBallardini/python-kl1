@@ -83,7 +83,8 @@ src/python_kl1/
   dsl.py          # KL1-style clause DSL: Relation subclasses, @clause, guard/tell,
                   #   list + functor patterns; calling a relation (eager) or session (lazy)
 examples/         # ports of the KL1 originals (not_gate, factorial, sieve, bank_account,
-                  #   qsort, hanoi, deriv, pascal, kkqueen, qlay, merge)
+                  #   qsort, hanoi, deriv, pascal, kkqueen, qlay, merge, pp, mastermind,
+                  #   puzzle, wave, life)
 tests/            # unit tests per module
 tutorial.md       # hands-on guide: concepts, setup, calling styles, when to use it
 python-kl1-general.md   # KL1 findings + library design notes
