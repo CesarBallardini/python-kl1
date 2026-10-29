@@ -2,18 +2,43 @@ name: pytest
 
 on:
   push:
+    branches: [main]
   pull_request:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   pytest:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-      - run: uv sync --all-groups --frozen
-      - run: uv run --frozen pytest -n auto --cov=python_kl1 --cov-report=xml
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: ./.github/actions/setup-python
+
+      # --cov-config makes the .coveragerc gate explicit rather than relying on
+      # coverage's file discovery; fail_under = 90 in that file is what turns a
+      # coverage drop into a failed build.
+      - name: Run tests with coverage
+        run: >-
+          uv run --frozen pytest -n auto
+          --cov=python_kl1
+          --cov-config=.coveragerc
+          --cov-report=xml
+          --cov-report=term-missing
+
+      # Every example runs its KL1 original at full size, so this step takes a
+      # few minutes; the unit tests cover the same programs on smaller instances.
+      # Mirrors `make examples`, and like it stops at the first failing script.
       - name: Run examples
         run: |
+          set -euo pipefail
           for example in examples/[!_]*.py; do
             echo "=== $example ==="
             uv run --frozen python "$example"

@@ -761,8 +761,7 @@ Syntax: a clause is `head :- guard | body.` — `:-…|` is the **commit** opera
 
 ## Appendix A: source material read
 
-- [`kl1c/README.md`](https://github.com/CesarBallardini/kl1c/blob/main/README.md),
-  [`kl1c/CLAUDE.md`](https://github.com/CesarBallardini/kl1c/blob/main/CLAUDE.md) — project
+- [`kl1c/README.md`](https://github.com/CesarBallardini/kl1c/blob/main/README.md) — project
   rationale, KL1 language notes.
 - [`kl1c/examples/`](https://github.com/CesarBallardini/kl1c/tree/main/examples) —
   `fact, qsort, merge, primesp, prio, pp, server, client, turtles`.

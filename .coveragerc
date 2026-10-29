@@ -1,0 +1,12 @@
+# Coverage configuration -- deliberately its own file rather than a
+# [tool.coverage.*] table in pyproject.toml, so it sits alongside the other
+# quality-gate configs (ruff.toml, bandit.yaml, pyrightconfig.json, pyrefly.toml)
+# and can be passed explicitly with --cov-config from any working directory.
+#
+# fail_under is a hard gate, not a report: `pytest --cov` exits non-zero below
+# it, so a coverage drop fails CI the same way a lint or type error does.
+
+[report]
+fail_under = 90
+show_missing = true
+precision = 0

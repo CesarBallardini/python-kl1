@@ -1,14 +1,19 @@
 [project]
 name = "python-kl1"
-version = "0.1.0"
-description = "KL1-style concurrent (Guarded Horn Clauses) multi-threaded programming for Python, on a tooling-first scaffold: linting, type checking, testing, and security wired up from day one."
+# The version is derived from the newest git tag by uv-dynamic-versioning, so
+# `cz bump` (version_provider = "scm") and the built wheel can never disagree.
+dynamic = ["version"]
+description = "KL1-style concurrent logic programming (Guarded Horn Clauses) for Python, on a tooling-first scaffold: linting, type checking, testing, and security wired up from day one."
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = []
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "uv-dynamic-versioning"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/python_kl1"]
@@ -16,10 +21,12 @@ packages = ["src/python_kl1"]
 [dependency-groups]
 dev = [
     "bandit[toml]",
+    "commitizen",
     "factory-boy",
     "faker",
     "import-linter",
     "pip-audit",
+    "pip-licenses",
     "pre-commit",
     "pyrefly",
     "pyright",
@@ -27,12 +34,25 @@ dev = [
     "pytest-bdd",
     "pytest-cov",
     "pytest-playwright",
+    "pytest-timeout",
     "pytest-xdist",
     "ruff",
 ]
 deploy = [
     "docker",
 ]
+
+[tool.commitizen]
+# Conventional Commits, enforced in two places: the commit-msg pre-commit hook
+# on every local commit, and `cz check` over the PR title in CI (a squash merge
+# takes the PR title as the commit subject, so that is the one that lands).
+name = "cz_conventional_commits"
+tag_format = "v$version"
+version_scheme = "pep440"
+# The git tag is the single source of truth for the version -- nothing to bump
+# in a tracked file, so a release is a tag and not a commit.
+version_provider = "scm"
+update_changelog_on_bump = false
 
 # pytest configuration lives in `pytest.ini`.
 

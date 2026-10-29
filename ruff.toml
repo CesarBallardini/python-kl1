@@ -8,7 +8,8 @@ select = [
     "N",            # pep8-naming
     "UP",           # pyupgrade
     "B",            # flake8-bugbear
-    "S",            # flake8-bandit
+    "C90",          # mccabe complexity -- honors [lint.mccabe] max-complexity below
+    "S",           # flake8-bandit
     "SIM",          # flake8-simplify
     "RET",          # flake8-return
     "PIE",          # flake8-pie
