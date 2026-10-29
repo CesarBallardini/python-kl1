@@ -12,6 +12,7 @@ from python_kl1.core import (
     deref,
     drain,
     is_bound,
+    merge_streams,
     stream_from,
     to_list,
     unify,
@@ -25,6 +26,7 @@ from python_kl1.dsl import (
     empty,
     fresh,
     guard,
+    merge,
     nil,
     session,
     struct,
@@ -443,3 +445,49 @@ def test_unstruct_fails_the_clause_on_a_wrong_functor() -> None:
 
     with pytest.raises(NoMatchingClauseError):
         engine.run()
+
+
+class _MergeInto(Relation):
+    """merge2(Xs, Ys, Zs): Zs is the fair merge of Xs and Ys -- generic:new(merge, {Xs, Ys}, Zs)."""
+
+    @clause
+    def go(self, xs: Term, ys: Term, zs: Term) -> None:
+        tell(zs, merge(xs, ys))
+
+
+class _Fork(Relation):
+    """A client that splits its merge input in two (KLIC's In = {In1, In2}) and uses both halves."""
+
+    @clause
+    def go(self, ins: Term) -> None:
+        mine, helper = fresh(), fresh()
+        tell(ins, merge(mine, helper))
+        tell(mine, cons('me', nil()))
+        tell(helper, cons('helper', nil()))
+
+
+@pytest.mark.unit
+def test_merge_in_a_clause_body_binds_an_output_stream() -> None:
+    with session() as engine:
+        merged = Var()
+        _MergeInto()(stream_from(engine, [1, 2]), stream_from(engine, ['a', 'b']), merged)
+        engine.run()
+        items = to_list(merged)  # a proper list: the merge closed once both inputs ended
+
+    assert len(items) == 4
+    assert set(items) == {1, 2, 'a', 'b'}
+
+
+@pytest.mark.unit
+def test_splitting_a_merge_input_admits_a_new_client() -> None:
+    # The outer merge sees `client` close only once both halves of the split have closed.
+    with session() as engine:
+        client, other = Var(), Var()
+        shared = merge_streams(engine, client, other)
+        _Fork()(client)
+        unify(other, Cons('other', NIL))
+        engine.run()
+        items = to_list(shared)
+
+    assert len(items) == 3
+    assert set(items) == {'me', 'helper', 'other'}

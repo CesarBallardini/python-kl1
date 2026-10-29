@@ -141,6 +141,13 @@ generic:new(merge, {S1, S2}, Merged)  % tests/merge/merge_new.kl1: vector of inp
 Merge fairly interleaves multiple producer streams into one consumer stream. It is the
 standard way to build a shared server with multiple clients.
 
+In python-kl1 it is a stream helper rather than a special object: `merge_streams(engine, *streams)`
+in `core/stream.py`, surfaced in the DSL as `merge(*streams)` (a clause body writes
+`tell(out, merge(xs, ys))`, or passes `merge(xs, ys)` straight to a consumer). There are no
+vectors, so the `{S1, S2}` split that admits a new client into a running merge is written by
+nesting — `tell(ins, merge(in1, in2))` — which keeps the "closes when every input has closed"
+rule exact with no central registry. See `examples/merge.py`.
+
 ### 3.4 Difference lists (O(1) concatenation)
 
 A pair `(List, Tail)` where `Tail` is the still-open end, letting a process append in
@@ -253,7 +260,9 @@ import-linter:
   manager that runs to quiescence on exit.
 - **`core/stream.py`** — streams as incremental `Cons` lists over a `Var`: `stream_from`,
   `put`/`close`, `Producer` (context-manager write-end), `each`/`collect`/`drain`
-  (`drain` is a lazy Python iterator), `map_stream`/`filter_stream`, and `to_list`.
+  (`drain` is a lazy Python iterator), `map_stream`/`filter_stream`, `merge_streams` (KL1's
+  fair many-to-one **merge**: one waiter per input feeding a shared `Producer`, closing once
+  every input has closed), and `to_list`.
 - **`core/goal.py`** — the raw **committed-choice** engine. A `Predicate` holds clauses that
   return `commit(body)` / `suspend(*vars)` / `fail()`; the reducer picks the first that
   commits, else suspends on the union of awaited vars and retries when any binds. `bind_from`
@@ -284,6 +293,9 @@ class Factorial(Relation):
   fail the clause when false; `tell` binds (waiting for any unbound vars in the expression).
 - **List patterns** `uncons` / `empty` (`[H|T]` / `[]`) with constructors `cons` / `nil`;
   **functor patterns** `unstruct(term, name, arity)` with constructor `struct(name, *args)`.
+- **Merge** `merge(*streams)` — KL1's fair many-to-one channel as an expression: pass it to a
+  consumer or bind an output with `tell(out, merge(xs, ys))`; dynamic fan-in is nesting,
+  `tell(ins, merge(in1, in2))`.
 - **Running a relation:** outside a session, `rel(*inputs)` is the **eager** query (append a
   fresh result, run to quiescence, return the value — an atom or a `Cons`-stream; `to_list`
   materialises a stream). Inside a **`session()`** (or a clause body), `rel(*args)` instead
@@ -301,6 +313,11 @@ class Factorial(Relation):
 - **Value layer:** an explicit `Value` union (not `object`), including functors (`Struct`).
 - **Eager vs. lazy:** calling a relation is eager for a single-atom query; `session()` is the
   lazy, uniform, composable form for streams, the object pattern, and dataflow composition.
+- **Merge:** an ordinary pattern over the substrate, not a first-class runtime object —
+  `merge_streams` is one `when_bound` waiter per input writing to a shared `Producer`, so
+  elements flow as they arrive, ready inputs interleave round-robin on the FIFO engine, and the
+  output closes with the last input; the DSL's `merge(*streams)` is sugar over it. KLIC's
+  vector split (`In = {In1, In2}`) becomes nesting, which needs no vectors.
 
 ### 5.4 The layering, and how it is enforced
 
@@ -344,6 +361,8 @@ In `examples/` (each also an executable test asserting the KL1 result):
   (no `merge`); the guard disjunction becomes committed-choice ordering.
 - **`qlay.py`** — `qlay.kl1`: N-Queens via the **layered-streams** technique (Okimura); the
   two `otherwise.` defaults become a guard-free `keep` clause after the skip clauses.
+- **`merge.py`** — `merge.kl1`: the **merge** primitive — K one-element streams fanned into one,
+  counted, and checked to close; nested mergers stand in for KLIC's input vector.
 
 **N-Queens two ways (`kkqueen` vs `qlay`).** The two ports solve the same problem with
 different KL1 idioms:
@@ -372,8 +391,10 @@ Appendix C.
 The first implementation settled the big choices (see §5.3): scheduler substrate
 (cooperative interleaving); guard safety (the ask/tell split); unification (structural over
 `Cons` and `Struct`); the value layer (an explicit `Value` union with functors); surface
-syntax (the class-based DSL); eager vs. lazy (calling vs. `session`). Several of those
-decisions are worth revisiting, and other gaps remain.
+syntax (the class-based DSL); eager vs. lazy (calling vs. `session`); and where **merge**
+lives (an ordinary pattern over the stream layer — `merge_streams` / `merge` — not a
+first-class runtime object). Several of those decisions are worth revisiting, and other gaps
+remain.
 
 Still open:
 
@@ -388,8 +409,6 @@ Still open:
   atoms/functors/vectors explicitly for fidelity?
 - API ergonomics: how close to the `Head :- Guard | Body` notation can we get in
   idiomatic Python without a parser?
-- Where does **merge** live — a first-class runtime object, or an ordinary KL1-in-Python
-  process like everything else?
 - **Priority / `@priority`, `otherwise`, `after(N)`** — scheduling/control annotations are
   not exposed (the FIFO engine ignores priority).
 - **Relation inheritance** — clause collection uses a subclass's own methods only, so a
@@ -803,8 +822,9 @@ Everything else in KL1 is a pattern layered on top of that.
 
 ## Appendix C: KL1 programs not yet ported (the backlog)
 
-Ten programs are now ported to `examples/` (see §6): `not`, `factorial`, `sieve` (from
-`primes_sieve`), `bank_account`, `qsort`, `hanoi`, `deriv`, `pascal`, `kkqueen`, and `qlay`.
+Eleven programs are now ported to `examples/` (see §6): `not`, `factorial`, `sieve` (from
+`primes_sieve`), `bank_account`, `qsort`, `hanoi`, `deriv`, `pascal`, `kkqueen`, `qlay`, and
+`merge`.
 This appendix analyses the rest — **✓ ported**, **○ feasible** with the current primitives (not yet
 written), or **✗ blocked** by a missing feature (summarised in §C.4).
 
@@ -829,7 +849,7 @@ Standalone `.kl1` programs shipped with KLIC (`fact` → `examples/factorial.py`
 | `life` | Conway's Game of Life | ○ feasible (grid of cell-relations; substantial) |
 | `prio` | priority demo | ✗ needs `@priority` scheduling |
 | `turtles` | a tiling puzzle | ✗ needs `otherwise` (ordered default clause) |
-| `merge` | the `merge` builtin demo | ✗ needs the **merge** primitive |
+| `merge` | the `merge` builtin demo | ✓ `examples/merge.py` (nested mergers stand in for the input vector) |
 | `atomfunc` | atom & functor builtins | ✗ needs atom builtins (`make_atom`, `intern`, …) |
 | `vecstr` | vector & string builtins | ✗ needs aggregate types (vectors `{..}`, strings) |
 | `cmac` | a macro-declaration demo | ✗ needs `with` / macro directives (compile-time substitution) |
@@ -877,7 +897,6 @@ chapter:
 
 The `✗` rows above, and much of §C.3, reduce to a handful of gaps (cf. §7):
 
-- **`merge`** — the many-to-one fair channel; also all-solutions collection in search programs.
 - **`@priority` / `otherwise` / `after(N)`** — scheduling and control annotations (`prio`,
   `turtles`, and the biased-merge / dining-philosophers fragments).
 - **An I/O layer** — KL1 file / socket streams (`unix:` / `klicio`); the examples currently
@@ -887,6 +906,8 @@ The `✗` rows above, and much of §C.3, reduce to a handful of gaps (cf. §7):
 - **`with` / macro directives** — compile-time constant substitution (`cmac`).
 
 Functors (needed by `deriv`, the object pattern, and much of §C.3) are already available
-(`struct` / `unstruct`); difference lists and streams need no new features. So the plan from here — the
-largest *unblocked* next steps — is **`puzzle`** (concurrent search) and the **`wave`** /
-**`life`** cellular grids.
+(`struct` / `unstruct`), and so now is **merge** (`merge` / `merge_streams`), which unblocks the
+shared-server and all-solutions fragments and the Ch. 6 search combiners; difference lists and
+streams need no new features. So the plan from here — the largest *unblocked* next steps — is
+**`puzzle`** (concurrent search), the **`wave`** / **`life`** cellular grids, and the §C.3
+fragments that merge unblocks (the shared-server agents of Ch. 5, the Ch. 6 search skeleton).

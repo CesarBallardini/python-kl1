@@ -77,6 +77,7 @@ from python_kl1.dsl import (
     guard, tell, fresh,              # clause body basics
     uncons, empty, cons, nil,        # list patterns [H|T] / []
     struct, unstruct,                # functor patterns  name(args)
+    merge,                           # many-to-one: fan several streams into one
     session,                         # the lazy/dataflow entry point
 )
 
@@ -316,6 +317,39 @@ with session() as engine:
 This request/reply-over-a-stream pattern is the KL1 equivalent of an actor with a mailbox,
 or a channel-based service — but expressed with nothing but variables and binding.
 
+### Many clients, one server: `merge`
+
+A server reads *one* stream, so several clients need their streams **merged** into it. That is
+KL1's `merge` — here `merge(*streams)`, a fair many-to-one fan-in: each element is forwarded
+as soon as it appears on any input, and the merged stream closes once every input has closed.
+Two depositors and a teller sharing the account:
+
+```python
+from python_kl1.core import Struct, Var, deref, stream_from
+from python_kl1.dsl import merge, session
+
+with session() as engine:
+    reply = Var()
+    alice = stream_from(engine, [Struct('deposit', (100,))])
+    bob = stream_from(engine, [Struct('deposit', (50,))])
+    teller = stream_from(engine, [Struct('balance', (reply,))])
+    account(merge(alice, bob, teller), 0)   # one input stream, three clients
+    engine.run()
+    print(deref(reply))                      # 150 -- but read on
+```
+
+`merge` promises **fairness, not an order**. Nothing says the teller's `balance` arrives after
+both deposits; on this deterministic engine the ready inputs interleave round-robin, so you
+will see 150 every time, but a query racing a deposit is a genuine race — exactly as in KL1,
+where an indeterminate merge is a race by construction. If one client's messages must precede
+another's, put them on the *same* stream (sequence them); merge only what may interleave.
+
+Inside a clause body `merge` is an expression: pass `merge(xs, ys)` straight to a consumer, or
+bind an output argument with `tell(out, merge(xs, ys))`. To let a running client admit a new
+one, split its own input by nesting — `tell(ins, merge(mine, theirs))` — the upstream merge
+then sees `ins` close only when both halves have closed. (`examples/merge.py` ports KLIC's
+`merge` demo this way, fanning K streams in through nested mergers.)
+
 ---
 
 ## 7. The clause vocabulary, at a glance
@@ -333,6 +367,7 @@ Everything you write inside a clause body comes from this small set:
 | `cons(h, t)` / `nil()` | Build `[h\|t]` / `[]` (for `tell`) | — |
 | `struct(name, *args)` | Build a functor `name(args)` (for `tell`) | — |
 | `unstruct(term, name, arity)` → tuple | Destructure functor `name(...)` | **suspends** if unbound; **fails** on wrong name/arity/type |
+| `merge(*streams)` → merged stream | Fair many-to-one merge (KL1 `merge`) | forwards each element as its input binds; closes once **all** inputs have closed |
 
 Arithmetic on terms — `+ - * // %` — builds deferred expressions; comparisons build guards.
 Both are evaluated lazily, only once their variable leaves are bound.
@@ -344,7 +379,8 @@ top. You rarely trigger these explicitly — they fall out of `guard`, `uncons`,
 
 > **Escape hatch.** For lower-level stream work outside the DSL, `python_kl1.core` also
 > exposes `open_stream`, `put`, `close`, `each`, `collect`, `map_stream`, `filter_stream`,
-> and a `Producer` — plus the raw goal layer (`call`, `commit`, `suspend`, `fail`). You
+> `merge_streams` (the engine-level form of `merge`) and a `Producer` — plus the raw goal
+> layer (`call`, `commit`, `suspend`, `fail`). You
 > won't need these to start; the DSL is the intended front door.
 
 ---
@@ -417,7 +453,8 @@ data. If the coordination is trivial, you don't need it.
 
 - **`examples/`** — runnable ports of the classic KL1 programs, from simplest to most
   involved: `not_gate.py`, `factorial.py`, `sieve.py`, `bank_account.py`, `qsort.py`,
-  `hanoi.py`, `deriv.py`, `pascal.py`, `kkqueen.py`, `qlay.py`. Read them in that order.
+  `hanoi.py`, `deriv.py`, `pascal.py`, `kkqueen.py`, `qlay.py`, `merge.py`. Read them in that
+  order.
 - **`python-kl1-general.md`** — the design notes and KL1 concepts distilled from the KLIC
   reference implementation and the Huntbach & Ringwood book, plus the layered architecture
   (§5) and a backlog of further programs (Appendix C).

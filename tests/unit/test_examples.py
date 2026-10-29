@@ -11,6 +11,8 @@ from examples.deriv import deriv, show
 from examples.factorial import factorial
 from examples.hanoi import hanoi
 from examples.kkqueen import count_solutions as queens_count
+from examples.merge import go as merge_go
+from examples.merge import merge_count
 from examples.not_gate import not_gate
 from examples.pascal import rows as pascal_rows
 from examples.qlay import count_solutions as qlay_count
@@ -104,3 +106,14 @@ def test_kkqueen_example() -> None:
 def test_qlay_example() -> None:
     assert qlay_count(6) == 4
     assert qlay_count(8) == 92  # layered-streams N-Queens, same counts
+
+
+@pytest.mark.unit
+def test_merge_example() -> None:
+    assert merge_count(0) == 0
+    assert merge_count(1) == 1
+    assert merge_count(7) == 7  # K one-element streams in, K elements out, and the merge closes
+
+    with session() as engine:
+        merge_go(0, 10)  # merge.kl1's go/2 over a shorter range: every total must unify with its K
+        engine.run()

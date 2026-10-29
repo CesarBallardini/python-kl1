@@ -29,6 +29,8 @@ expressions (``n - 1``, ``r1 * n``) and guards (``n == 1``, ``n > 1``):
 - ``fresh()`` makes a new logic variable (as a Term, so it composes with operators);
 - ``uncons`` / ``empty`` are the list head patterns ``[H|T]`` / ``[]``; ``cons`` /
   ``nil`` construct list cells for ``tell``;
+- ``merge(*streams)`` is KL1's many-to-one ``merge``: a fair fan-in of several streams
+  into one (``tell(out, merge(xs, ys))`` binds an output to it);
 - calling ``self`` (or another relation) inside a body spawns a concurrent sub-goal;
 - calling a relation ``rel(*inputs)`` at top level runs it and returns the bound result;
   inside a :func:`session` it spawns lazily instead (you pass and read the output vars).
@@ -49,6 +51,7 @@ from typing import TYPE_CHECKING, ClassVar
 from python_kl1.core.engine import Engine
 from python_kl1.core.goal import NoMatchingClauseError, bind_from, retry_when_any_bound
 from python_kl1.core.logicvar import Var, deref, unify
+from python_kl1.core.stream import merge_streams
 from python_kl1.core.terms import NIL, Cons, Struct
 
 if TYPE_CHECKING:
@@ -403,6 +406,18 @@ def unstruct(term: Term, name: str, arity: int) -> tuple[Term, ...]:
     if isinstance(value, Struct) and value.name == name and len(value.args) == arity:
         return tuple(_wrap(arg) for arg in value.args)
     raise _ClauseFail
+
+
+def merge(*streams: Operand) -> Term:
+    """Fair many-to-one merge of ``streams`` -- KLIC's ``generic:new(merge, In, Out)``.
+
+    Returns the merged stream as a term: pass it straight to a consumer, or bind an
+    output argument to it with ``tell(out, merge(xs, ys))``. Elements are forwarded as
+    they arrive on any input (fairly, never in a fixed order) and the result closes once
+    every input has closed. To give a new client its own input into a running merge --
+    KLIC's ``In = {In1, In2}`` split -- nest: ``tell(ins, merge(in1, in2))``.
+    """
+    return _wrap(merge_streams(_engine(), *(_as_value(stream) for stream in streams)))
 
 
 class _ClauseMethod:

@@ -78,11 +78,12 @@ src/python_kl1/
     terms.py      # the value model: Value, Cons cells, Struct (functors), NIL
     logicvar.py   # single-assignment logic variables + unification
     engine.py     # cooperative interleaving scheduler (context manager)
-    stream.py     # streams over logic variables (Producer, drain, map/filter)
+    stream.py     # streams over logic variables (Producer, drain, map/filter, merge)
     goal.py       # committed-choice goal reduction (the raw layer)
   dsl.py          # KL1-style clause DSL: Relation subclasses, @clause, guard/tell,
                   #   list + functor patterns; calling a relation (eager) or session (lazy)
-examples/         # not_gate, factorial, sieve, bank_account (ports of the KL1 originals)
+examples/         # ports of the KL1 originals (not_gate, factorial, sieve, bank_account,
+                  #   qsort, hanoi, deriv, pascal, kkqueen, qlay, merge)
 tests/            # unit tests per module
 tutorial.md       # hands-on guide: concepts, setup, calling styles, when to use it
 python-kl1-general.md   # KL1 findings + library design notes
