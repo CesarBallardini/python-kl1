@@ -1,8 +1,12 @@
 # python-kl1
 
+<!-- markdown-link-check-disable -->
 [![check](https://github.com/CesarBallardini/python-kl1/actions/workflows/check.yml/badge.svg)](https://github.com/CesarBallardini/python-kl1/actions/workflows/check.yml)
 [![pytest](https://github.com/CesarBallardini/python-kl1/actions/workflows/pytest.yml/badge.svg)](https://github.com/CesarBallardini/python-kl1/actions/workflows/pytest.yml)
 [![security](https://github.com/CesarBallardini/python-kl1/actions/workflows/security.yml/badge.svg)](https://github.com/CesarBallardini/python-kl1/actions/workflows/security.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/CesarBallardini/python-kl1/badge)](https://scorecard.dev/viewer/?uri=github.com/CesarBallardini/python-kl1)
+[![blog post](https://img.shields.io/badge/blog-post-blue)](https://katra.ballardini.com.ar/posts/kl1-icot-quinta-generacion/)
+<!-- markdown-link-check-enable -->
 
 A Python library for **KL1-style concurrent programming** — the concurrent-logic /
 Guarded Horn Clauses (GHC) model from Japan's ICOT Fifth Generation project. Concurrent
@@ -18,7 +22,8 @@ See [`python-kl1-general.md`](python-kl1-general.md) for the
 findings and design notes distilled from the KLIC reference implementation.
 
 > For the development tooling (uv, ruff, type checkers, tests, security, the `Makefile`),
-> see **[tooling.md](tooling.md)**.
+> see **[tooling.md](tooling.md)**; to contribute, **[CONTRIBUTING.md](CONTRIBUTING.md)**;
+> to report a vulnerability, **[SECURITY.md](SECURITY.md)**.
 
 ## Concepts
 
