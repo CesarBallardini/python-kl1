@@ -1,7 +1,7 @@
 # python-kl1 — General findings
 
-**Date:** 2026-07-19
-**Goal:** design a Python library, `python-kl1`, that lets us write multi-threaded
+**Started:** 2026-07-19 · **last revised:** 2026-10-29
+**Goal:** design a Python library, `python-kl1`, that lets us write concurrent
 programs in the *KL1 style* — the concurrent-logic / Guarded-Horn-Clauses (GHC)
 programming model.
 
@@ -221,8 +221,9 @@ library on the **process/variable/stream** machinery.
 ## 5. The implementation (current state)
 
 > This section reflects what is actually built; it replaces the original design sketch.
-> The library lives in `src/python_kl1/`; see the README architecture appendix for the
-> layered dependency graph, and `examples/` for runnable ports.
+> The library lives in `src/python_kl1/`: §5.1 below draws the layered dependency graph,
+> §5.4 explains how it is enforced, and the [README](README.md)'s *Layout* section lists the
+> files; `examples/` holds the runnable ports.
 
 ### 5.1 Layers
 
@@ -390,8 +391,8 @@ In `examples/` (each also an executable test asserting the KL1 result):
 - **`wave.py`** — `wave.kl1` (Foster's *Waves*): a **D × (D−2) × D block of `node` processes**
   joined by `{In, Out}` stream pairs. A *wiring phase* first: face points send `step(N, S, A)`
   requests that `filter`/`bfilter` route N hops inward, and a `done` token threaded through
-  every point is the barrier that releases `Go = go` only once every request is acknowledged;
-  then `Stop` rounds of read-all / count / write-all that sweep the block as a wavefront. The
+  every point is the barrier that releases `Go = go` only once every request is acknowledged
+  (the **short-circuit termination** idiom, Appendix B item 6); then `Stop` rounds of read-all / count / write-all that sweep the block as a wavefront. The
   port adds a result list so each of the 144 nodes (D = 6) reports its final state, `1 + Stop`;
   the 2-vectors are `io/2` structs, `wait(Sync)` is `empty`, `integer(L)` is `guard(v >= 0)`.
 
@@ -429,17 +430,22 @@ lives (an ordinary pattern over the stream layer — `merge_streams` / `merge` �
 first-class runtime object). Several of those decisions are worth revisiting, and other gaps
 remain.
 
-Still open:
+**Decided in §5.3, worth revisiting:**
 
-- **Threads vs. asyncio vs. greenlets** for the scheduler — which best models cheap,
-  data-suspended goals? (KL1 goals are *very* fine-grained; native threads may be too
-  heavy for `primes_sieve` at scale.)
-- How faithfully do we enforce the *guard cannot bind caller vars* rule — statically,
-  at runtime, or by convention?
-- Do we need full **unification** (two unbound vars, compound terms) or is
-  **assignment + pattern-match on Python data** enough for the target programs?
-- Scope of the **value layer**: reuse Python ints/lists/dicts, or model KL1
-  atoms/functors/vectors explicitly for fidelity?
+- **Scheduler** (decided: the cooperative FIFO engine). **Threads vs. asyncio vs. greenlets**
+  for the scheduler — which best models cheap, data-suspended goals? (KL1 goals are *very*
+  fine-grained; native threads may be too heavy for `primes_sieve` at scale.)
+- **Guard safety** (decided: the ask/tell split). How faithfully do we enforce the *guard
+  cannot bind caller vars* rule — statically, at runtime, or by convention?
+- **Unification** (decided: structural over `Cons` and `Struct`). Do we need full
+  **unification** (two unbound vars, compound terms) or is **assignment + pattern-match on
+  Python data** enough for the target programs?
+- **Value layer** (decided: an explicit `Value` union with functors). Scope of the **value
+  layer**: reuse Python ints/lists/dicts, or model KL1 atoms/functors/vectors explicitly for
+  fidelity?
+
+**Open:**
+
 - API ergonomics: how close to the `Head :- Guard | Body` notation can we get in
   idiomatic Python without a parser?
 - **Priority / `@priority`, `otherwise`, `after(N)`** — scheduling/control annotations are
@@ -700,10 +706,12 @@ Syntax: a clause is `head :- guard | body.` — `:-…|` is the **commit** opera
 - **Perpetual tail-recursive processes are your objects.** Servers consume a message stream
   and carry state in arguments; reuse the frame on tail call. This gives concurrent OOP,
   mutable state, and I/O for free.
-- **Ship these idioms first (in order):** (1) stream producer/consumer + suspension;
-  (2) `merge` (fair + biased); (3) perpetual stream-server object with reply-paid-envelope;
-  (4) difference-list bounded buffer; (5) `otherwise` + priority scheduling; (6) short-circuit
-  termination; (7) OR→AND concurrent search skeleton. These cover chapters 4–7.
+- **Ship these idioms first (in order):** (1) ✓ stream producer/consumer + suspension
+  (`sieve`); (2) `merge` (fair ✓ `merge`, biased not yet); (3) ✓ perpetual stream-server
+  object with reply-paid-envelope (`bank_account`); (4) difference-list bounded buffer;
+  (5) `otherwise` + priority scheduling; (6) ✓ short-circuit termination (`wave`); (7) OR→AND
+  concurrent search skeleton. These cover chapters 4–7. ✓ = shipped as a ported example, as
+  of 2026-10-29.
 - **Pitfalls the book explicitly warns about:**
   - **Premature binding** — never expose bindings to shared variables before commit; copy
     endangered vars locally and unify after commit, or hoist recursion into an arbiter body.
