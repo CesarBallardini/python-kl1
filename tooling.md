@@ -62,9 +62,9 @@ make clean            # remove build, cache and coverage artifacts
 attribution check is deliberately not a make target: its pattern would match the Makefile
 itself.
 
-`make examples` is also what CI's `pytest.yml` runs after the test suite. It takes a few
-minutes rather than seconds, because `mastermind.py` (~100 s), `life.py` and `puzzle.py`
-(~20 s each) run their originals at full size; the unit tests cover the same programs on
+`make examples` is also what CI's `pytest.yml` runs after the test suite. It takes about a
+minute rather than seconds, because `mastermind.py` (~28 s), `life.py` and `puzzle.py`
+(~9 s each) run their originals at full size; the unit tests cover the same programs on
 smaller instances in a few seconds.
 
 ## Updating dependencies

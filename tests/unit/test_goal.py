@@ -1,5 +1,7 @@
 """Unit tests for the committed-choice goal layer."""
 
+import gc
+
 import pytest
 
 from python_kl1.core import (
@@ -190,6 +192,27 @@ def test_committed_choice_takes_the_first_matching_clause() -> None:
     engine.run()
 
     assert deref(result) == 'first'
+
+
+@pytest.mark.unit
+def test_a_woken_reduction_leaves_no_cyclic_garbage() -> None:
+    # A goal that retries itself through a closure is a reference cycle, which only the
+    # cycle collector can free; with the collector off, nothing may be left for it to find.
+    factorial = _make_factorial()  # the predicate and its clauses form a cycle; keep it alive
+    n = Var()
+    result = Var()
+    gc.collect()
+    gc.disable()
+    try:
+        engine = Engine()
+        call(engine, factorial, n, result)
+        engine.run()  # suspends on n
+        unify(n, 5)
+        engine.run()  # wakes; bind_from waits on each sub-result in turn
+        assert deref(result) == 120
+        assert gc.collect() == 0
+    finally:
+        gc.enable()
 
 
 @pytest.mark.unit

@@ -507,26 +507,32 @@ class Relation:
 def call(engine: Engine, relation: Relation, *args: Operand) -> None:
     """Spawn a goal reducing ``relation(*args)`` under committed choice."""
     wrapped = [_wrap(arg) for arg in args]
+    engine.spawn(partial(_reduce, engine, relation, args, wrapped))
 
-    def reduce() -> None:
-        waiting: list[Var] = []
-        for clause in relation._clauses:
-            _ENGINE_STACK.append(engine)
-            try:
-                clause(*wrapped)
-            except _ClauseFail:
-                continue
-            except _ClauseSuspend as suspended:
-                waiting.extend(suspended.variables)
-                continue
-            finally:
-                _ENGINE_STACK.pop()
-            return  # committed -- the body has already run
-        if not waiting:
-            raise NoMatchingClauseError(f'{relation.name}{args!r}')
-        retry_when_any_bound(engine, waiting, reduce)
 
-    engine.spawn(reduce)
+def _reduce(engine: Engine, relation: Relation, args: tuple[Operand, ...], wrapped: list[Term]) -> None:
+    """Try each clause in order; commit to the first, or suspend on what the others awaited.
+
+    The retry is a fresh ``partial`` rather than a closure over itself: a goal that refers to
+    itself is a reference cycle, which only CPython's cycle collector can free, whereas this
+    way a finished goal -- and every term it held -- is freed by reference counting.
+    """
+    waiting: list[Var] = []
+    for clause in relation._clauses:
+        _ENGINE_STACK.append(engine)
+        try:
+            clause(*wrapped)
+        except _ClauseFail:
+            continue
+        except _ClauseSuspend as suspended:
+            waiting.extend(suspended.variables)
+            continue
+        finally:
+            _ENGINE_STACK.pop()
+        return  # committed -- the body has already run
+    if not waiting:
+        raise NoMatchingClauseError(f'{relation.name}{args!r}')
+    retry_when_any_bound(engine, waiting, partial(_reduce, engine, relation, args, wrapped))
 
 
 @contextmanager

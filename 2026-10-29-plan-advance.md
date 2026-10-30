@@ -388,3 +388,27 @@ gitleaks, link check, commitizen, hardened CI); its link check found a dead `kl1
 Appendix A, which is why 0.3–0.6 waited for it. 0.3–0.6 landed as written, plus the same dead
 "README appendix" pointer in `tooling.md`. The §8 checklist marks (2) fair-merge only: nothing
 implements a biased merge yet (it needs Phase 5).
+
+**Phase 1 (2026-10-29).** Steps 1.1–1.2 ran as planned (scratchpad scripts; peak working set
+instead of `tracemalloc`, which would have distorted the timings). At `mastermind go(2, 3)`'s
+peak, 2.1 M objects are tracked, mostly closure cells and functions. Variants, wall time ·
+peak working set:
+
+| Workload | Baseline | A: threshold 200k | B: freeze | C: disable in `run` | **E: no self-referencing closures** |
+| --- | --- | --- | --- | --- | --- |
+| `mastermind go(3, 3)` = 860 | 94 s · 184 MB | 52 s · 601 MB | 101 s · 184 MB | 25 s · 2115 MB | **25 s · 126 MB** |
+| `life(120, 38, 38)` = 711 | 22 s · 46 MB | 18 s · 246 MB | 23 s · 46 MB | 13 s · 994 MB | **8.5 s · 27 MB** |
+| `puzzle go()` = 65 | 18.5 s · 211 MB | 9.1 s · 279 MB | 19.3 s · 211 MB | 6.8 s · 527 MB | **8.5 s · 152 MB** |
+| `mastermind go(2, 3)` = 81 | 3.9 s · 52 MB | 2.9 s · 80 MB | 3.7 s · 52 MB | 2.1 s · 217 MB | **1.4 s · 29 MB** |
+
+Deviation: none of A–C met the 1.7 rule (≥ 3× at ≤ 2× memory), and D was already in place
+(every class has slots). Collecting with the GC off and `DEBUG_SAVEALL` showed why: the engine
+made the garbage cyclic — 2.57 M objects for `go(2, 3)`, every function among them
+`call.<locals>.reduce` or `bind_from.<locals>.attempt`, closures that retry themselves. E turns
+those (plus `goal.call`'s) into module-level functions re-armed as `partial`s: 0 cyclic garbage,
+3.7× on `go(3, 3)` with less memory, no GC settings touched — so no `_gc_relief()` and, instead
+of 1.8's flag tests, one test per layer asserting a woken reduction leaves no cyclic garbage
+(both fail on the old code). Back to back on the final tree: `go(3, 3)` 103 → 28 s, `life`
+24 → 9.5 s, `puzzle` 19.5 → 8.9 s, `go(2, 3)` 3.7 → 1.4 s; `examples/mastermind.py` < 30 s.
+E + C would add another 1.7× (25 → 15 s, memory unchanged); left as an open question in §7.
+Lesson: find the garbage's source before tuning the collector.
