@@ -7,13 +7,13 @@ newly placed queen, ``lastFilter`` flattens the final layer into full solutions,
 solutions are threaded through a difference list. The marker atom ``begin`` starts an empty
 layered stream.
 
-The two KL1 ``otherwise.`` defaults become committed-choice ordering: the skip clauses
-(same column, either diagonal) come first, then a guard-free ``keep`` fallback that fires
-only when they all failed. Run it with ``uv run python examples/qlay.py``.
+The two KL1 ``otherwise.`` defaults are ``@otherwise`` ``keep`` clauses after the skip
+clauses (same column, either diagonal): a column is kept only once all of those have failed.
+Run it with ``uv run python examples/qlay.py``.
 """
 
 from python_kl1.core import Value, Var, deref
-from python_kl1.dsl import Relation, Term, clause, cons, empty, fresh, guard, nil, session, tell, uncons
+from python_kl1.dsl import Relation, Term, clause, cons, empty, fresh, guard, nil, otherwise, session, tell, uncons
 
 
 class Filter(Relation):
@@ -55,7 +55,7 @@ class Filter(Relation):
         guard(d == j - i)
         self(ins, i, d, out)
 
-    @clause
+    @otherwise
     def keep(self, incoming: Term, i: Term, d: Term, out: Term) -> None:
         """filter([[J|In1]|Ins], I, D, Out) :- Out = [[J|Out1]|Outs], filter(In1,I,D+1,Out1), filter(Ins,I,D,Outs)."""
         head, ins = uncons(incoming)
@@ -106,7 +106,7 @@ class LastFilter(Relation):
         guard(d == j - i)
         self(stack, ins, i, d, s, t)
 
-    @clause
+    @otherwise
     def keep(self, stack: Term, incoming: Term, i: Term, d: Term, s: Term, t: Term) -> None:
         """Keep clause: stack J and recurse into In, then into Ins.
 

@@ -30,6 +30,7 @@ from python_kl1.dsl import (
     guard,
     merge,
     nil,
+    otherwise,
     session,
     struct,
     tell,
@@ -514,3 +515,130 @@ def test_splitting_a_merge_input_admits_a_new_client() -> None:
 
     assert len(items) == 3
     assert set(items) == {'me', 'helper', 'other'}
+
+
+class _Classify(Relation):
+    @clause
+    def zero(self, x: Term, r: Term) -> None:
+        guard(x == 0)
+        tell(r, 'zero')
+
+    @otherwise
+    def other(self, x: Term, r: Term) -> None:
+        tell(r, 'other')
+
+
+class _GuardFreeFallback(Relation):
+    """The same relation with a trailing guard-free @clause instead of @otherwise."""
+
+    @clause
+    def zero(self, x: Term, r: Term) -> None:
+        guard(x == 0)
+        tell(r, 'zero')
+
+    @clause
+    def other(self, x: Term, r: Term) -> None:
+        tell(r, 'other')
+
+
+class _TwoGroups(Relation):
+    """p(X,_,R) :- X =:= 1 | R = a.  otherwise.  p(_,Y,R) :- Y =:= 1 | R = b.
+    p(X,_,R) :- X =:= 2 | R = c.  otherwise.  p(_,_,R) :- R = d.
+    """
+
+    @clause
+    def a(self, x: Term, y: Term, r: Term) -> None:
+        guard(x == 1)
+        tell(r, 'a')
+
+    @otherwise
+    def b(self, x: Term, y: Term, r: Term) -> None:
+        guard(y == 1)
+        tell(r, 'b')
+
+    @clause
+    def c(self, x: Term, y: Term, r: Term) -> None:
+        guard(x == 2)
+        tell(r, 'c')
+
+    @otherwise
+    def d(self, x: Term, y: Term, r: Term) -> None:
+        tell(r, 'd')
+
+
+class _PositiveOnly(Relation):
+    @clause
+    def zero(self, x: Term, r: Term) -> None:
+        guard(x == 0)
+        tell(r, 'zero')
+
+    @otherwise
+    def positive(self, x: Term, r: Term) -> None:
+        guard(x > 0)
+        tell(r, 'positive')
+
+
+@pytest.mark.unit
+def test_otherwise_waits_while_an_earlier_clause_is_suspended() -> None:
+    with session() as engine:
+        x, result = Var(), Var()
+        _Classify()(x, result)
+        engine.run()
+        assert not is_bound(result)  # zero is waiting on x, so the default must not commit
+
+        unify(x, 0)
+        engine.run()
+        assert deref(result) == 'zero'
+
+
+@pytest.mark.unit
+def test_otherwise_commits_once_every_earlier_clause_has_failed() -> None:
+    assert _Classify()(5) == 'other'
+    assert _Classify()(0) == 'zero'
+
+
+@pytest.mark.unit
+def test_a_group_member_is_tried_when_the_otherwise_clause_suspends() -> None:
+    # x = 2, y unbound: a fails, b (opening the group) waits on y, and c -- in b's group --
+    # is still tried and commits, exactly as in KL1.
+    with session() as engine:
+        y, result = Var(), Var()
+        _TwoGroups()(2, y, result)
+        engine.run()
+        assert deref(result) == 'c'
+
+
+@pytest.mark.unit
+def test_a_second_otherwise_waits_for_the_first_group() -> None:
+    with session() as engine:
+        y, result = Var(), Var()
+        _TwoGroups()(3, y, result)
+        engine.run()
+        assert not is_bound(result)  # b is waiting on y, so d must not commit
+
+        unify(y, 1)
+        engine.run()
+        assert deref(result) == 'b'
+
+    assert _TwoGroups()(3, 5) == 'd'
+
+
+@pytest.mark.unit
+def test_otherwise_raises_when_nothing_matches_and_nothing_waits() -> None:
+    with pytest.raises(NoMatchingClauseError):
+        _PositiveOnly()(-1)
+
+
+@pytest.mark.unit
+def test_a_guard_free_fallback_commits_early_where_otherwise_waits() -> None:
+    # The trap @otherwise exists for: a guard-free clause commits while zero still waits.
+    with session() as engine:
+        x, early, waited = Var(), Var(), Var()
+        _GuardFreeFallback()(x, early)
+        _Classify()(x, waited)
+        engine.run()
+        unify(x, 0)
+        engine.run()
+
+    assert deref(early) == 'other'
+    assert deref(waited) == 'zero'

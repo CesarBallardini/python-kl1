@@ -22,6 +22,8 @@ from examples.puzzle import count_packings
 from examples.qlay import count_solutions as qlay_count
 from examples.qsort import qsort
 from examples.sieve import primes
+from examples.turtles import CARDS, CONSTRAINTS
+from examples.turtles import solve as turtles_solve
 from examples.wave import final_states as wave_states
 from examples.wave import go as wave_go
 from python_kl1.core import NIL, Engine, Struct, Var, deref, stream_from, to_list
@@ -185,10 +187,60 @@ def test_wave_example() -> None:
 
 @pytest.mark.unit
 def test_puzzle_example() -> None:
-    # go() -- the full 5x4x3 box, puzzle.kl1's 65 -- takes ~20 s, so main() runs it. A 5x3x3 box packed with two
+    # go() -- the full 5x4x3 box, puzzle.kl1's 65 -- takes ~9 s, so main() runs it. A 5x3x3 box packed with two
     # 4x3x1, two 3x2x1 and the 3x3x1 piece still fires direct, 2-layer and 3-layer template orientations alike:
     # 32 packings, per an independent brute-force packer.
     layer = tuple('v' if x < 5 and y < 3 else 'z' for y in range(5) for x in range(6))  # 30 cells, BOARD's strides
     assert count_packings(layer * 3 + ('z',) * 30, [['a', 'b'], ['d', 'e'], ['f'], []]) == 32
     # One 5x4 layer with a 4x3x1 and a 4x2x1: 3x4 beside 2x4, either way round.
     assert count_packings((('v',) * 5 + ('z',)) * 4 + ('z',) * 36, [[], ['d'], [], ['g']]) == 2
+
+
+_EDGE = {'t': 0, 'r': 1, 'b': 2, 'l': 3}  # the earlier card's edge; the new card's is the opposite one
+
+
+def _turtles_reference() -> list[list[tuple[int, str]]]:
+    """Brute-force turtles: backtrack over positions under CONSTRAINTS, ordered as the layered stream."""
+    options: list[tuple[int, tuple[str, ...], int]] = [(1, CARDS[0], 0)]  # (number, edges T R B L, orient index)
+    for number, card in enumerate(CARDS[1:], start=2):
+        for turn in range(4):
+            options.append((number, card[turn:] + card[:turn], len(options)))
+    found: list[list[tuple[int, tuple[str, ...], int]]] = []
+
+    def place(placed: list[tuple[int, tuple[str, ...], int]]) -> None:
+        if len(placed) == len(CONSTRAINTS):
+            found.append(list(placed))
+            return
+        used = {number for number, _, _ in placed}
+        row = CONSTRAINTS[len(placed)]
+        for option in options:
+            if option[0] in used:
+                continue
+            fits = True
+            for back, how in enumerate(row, start=1):
+                if how != 'x':
+                    a, b = placed[-back][1][_EDGE[how]], option[1][(_EDGE[how] + 2) % 4]
+                    fits = fits and a[1] == b[1] and {a[0], b[0]} == {'t', 'h'}
+            if fits:
+                place([*placed, option])
+
+    place([])
+    found.sort(key=lambda solution: [index for _, _, index in reversed(solution)])  # last position outermost
+    cell_of_position = (4, 1, 5, 2, 3, 0, 7, 6, 8)  # rearrange2
+    grids: list[list[tuple[int, str]]] = []
+    for solution in found:
+        grid = [(0, '')] * 9
+        for position, (number, edges, _) in enumerate(solution):
+            grid[cell_of_position[position]] = (number, edges[0])
+        grids.append(grid)
+    return grids
+
+
+@pytest.mark.unit
+def test_turtles_example() -> None:
+    # go(N, A) at full size (~2.5 s): N = 4, turtles.kl1's own count, and A matches a brute-force placer, order
+    # included -- each solution nine (card, top edge) pairs in grid order, KL1's N-T functors.
+    n, solutions = turtles_solve()
+    assert n == 4
+    assert solutions == _turtles_reference()
+    assert all(len(cells) == 9 for cells in solutions)

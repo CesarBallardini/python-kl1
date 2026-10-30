@@ -88,17 +88,27 @@ def commit(body: Body) -> Commit:
 class Predicate:
     """An ordered set of guarded clauses sharing a name."""
 
-    __slots__ = ('clauses', 'name')
+    __slots__ = ('_otherwise_at', 'clauses', 'name')
 
     def __init__(self, name: str) -> None:
         """Create an empty predicate named ``name``."""
         self.name = name
         self.clauses: list[Clause] = []
+        self._otherwise_at: set[int] = set()
 
     def clause(self, fn: Clause) -> Clause:
         """Register ``fn`` as the next clause (decorator). Returns it unchanged."""
         self.clauses.append(fn)
         return fn
+
+    def otherwise(self, fn: Clause) -> Clause:
+        """Register ``fn`` as the first clause after KL1's ``otherwise.`` (decorator).
+
+        It and the clauses after it are tried only once every earlier clause has failed; if
+        one suspended instead, the goal waits for that input. Returns ``fn`` unchanged.
+        """
+        self._otherwise_at.add(len(self.clauses))
+        return self.clause(fn)
 
     def __repr__(self) -> str:
         """Show the name and clause count."""
@@ -118,7 +128,9 @@ def _reduce(engine: Engine, predicate: Predicate, args: tuple[Value, ...]) -> No
     way a finished goal -- and every term it held -- is freed by reference counting.
     """
     waiting: list[Var] = []
-    for clause in predicate.clauses:
+    for index, clause in enumerate(predicate.clauses):
+        if waiting and index in predicate._otherwise_at:
+            break  # an otherwise clause waits until everything above it has failed
         verdict = clause(*args)
         if isinstance(verdict, Commit):
             verdict.body(engine)

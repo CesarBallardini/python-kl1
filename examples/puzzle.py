@@ -42,6 +42,7 @@ from python_kl1.dsl import (
     fresh,
     guard,
     nil,
+    otherwise,
     session,
     struct,
     tell,
@@ -211,7 +212,7 @@ class Match(Relation):
         """
         self.codeword('vsssss3', codes, board, b, m, j)
 
-    @clause
+    @otherwise
     def no_fit(self, codes: Term, board: Term, b: Term, m: Term, j: Term) -> None:
         """Nothing matched: pass the solution stream through.
 
@@ -262,7 +263,7 @@ class DirectPiece(Relation):
         new_board = build(stamp(cells, self.spec, m)[self.drop :], rest)
         play(new_board, pieces, s0, s1, n + 1, placed(self.code, n, a))
 
-    @clause
+    @otherwise
     def no_fit(self, board: Term, m: Term, pieces: Term, s0: Term, s1: Term, n: Term, a: Term) -> None:
         """The piece does not fit here: pass the solution stream through.
 
@@ -386,7 +387,7 @@ class Play(Relation):
         self.fill3(pieces, board, s2, s3, n, a)
         self.fill4(pieces, board, s3, s4, n, a)
 
-    @clause
+    @otherwise
     def skip(self, board: Term, pieces: Term, s0: Term, s1: Term, n: Term, a: Term) -> None:
         """Not a vacant cell: move on.
 

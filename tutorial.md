@@ -368,6 +368,7 @@ Everything you write inside a clause body comes from this small set:
 | `struct(name, *args)` | Build a functor `name(args)` (for `tell`) | — |
 | `unstruct(term, name, arity)` → tuple | Destructure functor `name(...)` | **suspends** if unbound; **fails** on wrong name/arity/type |
 | `merge(*streams)` → merged stream | Fair many-to-one merge (KL1 `merge`) | forwards each element as its input binds; closes once **all** inputs have closed |
+| `@otherwise` (instead of `@clause`) | Default clause (KL1 `otherwise.`): tried only once every clause above it has **failed** | **waits** while any clause above is suspended; mark only the first clause after each `otherwise.` |
 
 Arithmetic on terms — `+ - * // %` — builds deferred expressions; comparisons build guards.
 Both are evaluated lazily, only once their variable leaves are bound.
@@ -435,14 +436,12 @@ data. If the coordination is trivial, you don't need it.
 - **Clause order is behavior.** Committed choice takes the *first* clause whose guards pass.
   Put the specific, guarded clauses first and any guard-free fallback last. There is no
   backtracking to undo a commit.
-- **A guard-free fallback is "otherwise" only when the inputs are already bound.** A fallback
-  clause commits as soon as it is tried — even while the clauses above it are merely
-  *suspended* on input that has not arrived yet (KL1's `otherwise` waits for them to *fail*;
-  the DSL's fallback does not). So it is safe when everything the earlier clauses inspect is
-  bound before the goal runs (`examples/puzzle.py`: the board is built before `play` is
-  spawned). When that input may still be on its way, write the negated guards out instead, so
-  the fallback suspends on the same variables (`examples/mastermind.py`: `Bulls`/`Cows` come
-  from a concurrent `eval`).
+- **A guard-free fallback is *not* an otherwise — use `@otherwise`.** A trailing `@clause`
+  with no guards commits as soon as it is tried, even while the clauses above it are merely
+  *suspended* on input that has not arrived yet. KL1's `otherwise.` waits for them to *fail*,
+  and so does `@otherwise` (`examples/mastermind.py`: its defaults wait for the `Bulls`/`Cows`
+  a concurrent `eval` is still computing). Mark only the first clause after each
+  `otherwise.`; the clauses after it in the same group stay `@clause`.
 - **Nothing runs until you drive the engine.** In a session, spawning only queues work.
   Call `engine.run()` (run to quiescence), or consume via `drain` (run on demand). Forgetting
   to drive the engine looks like "my variable is still unbound."
@@ -462,7 +461,7 @@ data. If the coordination is trivial, you don't need it.
 - **`examples/`** — runnable ports of the classic KL1 programs, from simplest to most
   involved: `not_gate.py`, `factorial.py`, `sieve.py`, `bank_account.py`, `qsort.py`,
   `hanoi.py`, `deriv.py`, `pascal.py`, `kkqueen.py`, `qlay.py`, `merge.py`, `pp.py`,
-  `mastermind.py`, `puzzle.py`, `wave.py`, `life.py`. Read them in that order.
+  `mastermind.py`, `puzzle.py`, `wave.py`, `life.py`, `turtles.py`. Read them in that order.
 - **`python-kl1-general.md`** — the design notes and KL1 concepts distilled from the KLIC
   reference implementation and the Huntbach & Ringwood book, plus the layered architecture
   (§5) and a backlog of further programs (Appendix C).

@@ -215,6 +215,42 @@ def test_a_woken_reduction_leaves_no_cyclic_garbage() -> None:
         gc.enable()
 
 
+def _make_classify() -> Predicate:
+    classify = Predicate('classify')
+
+    @classify.clause
+    def _zero(x, r):
+        value = deref(x)
+        if isinstance(value, Var):
+            return suspend(value)
+        if value == 0:
+            return commit(lambda engine: unify(r, 'zero'))
+        return fail()
+
+    @classify.otherwise
+    def _other(x, r):
+        return commit(lambda engine: unify(r, 'other'))
+
+    return classify
+
+
+@pytest.mark.unit
+def test_otherwise_clause_waits_for_the_clauses_above_to_fail() -> None:
+    engine = Engine()
+    classify = _make_classify()
+    pending, waited, failed = Var(), Var(), Var()
+
+    call(engine, classify, pending, waited)
+    call(engine, classify, 7, failed)
+    engine.run()
+    assert not is_bound(waited)  # _zero is waiting on `pending`
+    assert deref(failed) == 'other'  # _zero failed outright
+
+    unify(pending, 0)
+    engine.run()
+    assert deref(waited) == 'zero'
+
+
 @pytest.mark.unit
 def test_predicate_repr_shows_name_and_count() -> None:
     predicate = Predicate('p')
