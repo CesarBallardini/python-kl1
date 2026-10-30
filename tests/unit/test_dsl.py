@@ -1,5 +1,7 @@
 """Unit tests for the KL1-style clause DSL (class-based relations)."""
 
+import gc
+
 import pytest
 
 from python_kl1.core import (
@@ -369,6 +371,27 @@ def test_calling_returns_a_stream_value() -> None:
         _Count()(3, result)
         engine.run()
         assert to_list(result) == [3, 2, 1]
+
+
+@pytest.mark.unit
+def test_a_woken_reduction_leaves_no_cyclic_garbage() -> None:
+    # A goal that retries itself through a closure is a reference cycle, which only the
+    # cycle collector can free; with the collector off, nothing may be left for it to find.
+    factorial = _Factorial()  # an instance and its bound clauses form a cycle; keep it alive
+    n = Var()
+    result = Var()
+    gc.collect()
+    gc.disable()
+    try:
+        with session() as engine:
+            factorial(n, result)
+            engine.run()  # suspends on n
+            unify(n, 5)
+            engine.run()  # wakes; each tell(r, r1 * n) waits on r1
+        assert deref(result) == 120
+        assert gc.collect() == 0
+    finally:
+        gc.enable()
 
 
 @pytest.mark.unit

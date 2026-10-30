@@ -21,6 +21,7 @@ can host the same clauses unchanged.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import partial
 from typing import TYPE_CHECKING
 
 from python_kl1.core.logicvar import Var, deref, unify
@@ -106,22 +107,28 @@ class Predicate:
 
 def call(engine: Engine, predicate: Predicate, *args: Value) -> None:
     """Spawn a goal that reduces ``predicate(*args)`` under committed choice."""
+    engine.spawn(partial(_reduce, engine, predicate, args))
 
-    def reduce() -> None:
-        waiting: list[Var] = []
-        for clause in predicate.clauses:
-            verdict = clause(*args)
-            if isinstance(verdict, Commit):
-                verdict.body(engine)
-                return
-            if isinstance(verdict, Suspend):
-                waiting.extend(verdict.variables)
-            # _Fail: fall through to the next clause.
-        if not waiting:
-            raise NoMatchingClauseError(f'{predicate.name}{args!r}')
-        retry_when_any_bound(engine, waiting, reduce)
 
-    engine.spawn(reduce)
+def _reduce(engine: Engine, predicate: Predicate, args: tuple[Value, ...]) -> None:
+    """Try each clause in order; commit to the first, or suspend on what the others awaited.
+
+    The retry is a fresh ``partial`` rather than a closure over itself: a goal that refers to
+    itself is a reference cycle, which only CPython's cycle collector can free, whereas this
+    way a finished goal -- and every term it held -- is freed by reference counting.
+    """
+    waiting: list[Var] = []
+    for clause in predicate.clauses:
+        verdict = clause(*args)
+        if isinstance(verdict, Commit):
+            verdict.body(engine)
+            return
+        if isinstance(verdict, Suspend):
+            waiting.extend(verdict.variables)
+        # _Fail: fall through to the next clause.
+    if not waiting:
+        raise NoMatchingClauseError(f'{predicate.name}{args!r}')
+    retry_when_any_bound(engine, waiting, partial(_reduce, engine, predicate, args))
 
 
 def bind_from(engine: Engine, inputs: Sequence[Value], fn: Callable[..., Value], out: Value) -> None:
@@ -130,16 +137,17 @@ def bind_from(engine: Engine, inputs: Sequence[Value], fn: Callable[..., Value],
     This is how KL1's ``:=`` (arithmetic assignment) is modelled: the body of a clause
     spawns a small goal that suspends until its operands are available.
     """
+    engine.spawn(partial(_attempt, engine, inputs, fn, out))
 
-    def attempt() -> None:
-        values = [deref(item) for item in inputs]
-        pending = [value for value in values if isinstance(value, Var)]
-        if pending:
-            retry_when_any_bound(engine, pending, attempt)
-        else:
-            unify(out, fn(*values))
 
-    engine.spawn(attempt)
+def _attempt(engine: Engine, inputs: Sequence[Value], fn: Callable[..., Value], out: Value) -> None:
+    """Bind ``out`` if every input is bound, else retry when one binds (a ``partial``, not a cycle)."""
+    values = [deref(item) for item in inputs]
+    pending = [value for value in values if isinstance(value, Var)]
+    if pending:
+        retry_when_any_bound(engine, pending, partial(_attempt, engine, inputs, fn, out))
+    else:
+        unify(out, fn(*values))
 
 
 def retry_when_any_bound(engine: Engine, variables: Sequence[Var], retry: Goal) -> None:

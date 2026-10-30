@@ -319,6 +319,19 @@ class Factorial(Relation):
   elements flow as they arrive, ready inputs interleave round-robin on the FIFO engine, and the
   output closes with the last input; the DSL's `merge(*streams)` is sugar over it. KLIC's
   vector split (`In = {In1, In2}`) becomes nesting, which needs no vectors.
+- **Scheduler and the cyclic GC:** a finished goal must be freeable by reference counting
+  alone. A goal that retries itself through a closure (`retry_when_any_bound(engine, waiting,
+  reduce)` inside `reduce`) is a function → cell → function cycle, and it keeps every term,
+  variable and cell the goal touched alive until CPython's cycle collector finds it —
+  2.6 M objects for `mastermind go(2, 3)`, re-walked collection after collection. So
+  `dsl.call`, `goal.call` and `bind_from` re-arm a fresh `functools.partial` over a
+  module-level function instead, and a unit test per layer asserts that a woken reduction
+  leaves no cyclic garbage. Measured back to back: `mastermind go(3, 3)` 103 s / 184 MB →
+  28 s / 126 MB; `life(120, 38, 38)` 24 s → 9.5 s; `puzzle go()` 19.5 s → 8.9 s. Tuning the
+  collector instead was measured and rejected: freezing it changes nothing, raising its
+  thresholds gives under 2× for up to 5× the memory, and disabling it during `run()` gives
+  the speed at 11–21× the memory — and the collector's settings are process-global state a
+  library should not flip.
 
 ### 5.4 The layering, and how it is enforced
 
@@ -373,7 +386,7 @@ In `examples/` (each also an executable test asserting the KL1 result):
   orientation; small pieces head-unify their footprint, large ones go through `match`, the codeword
   template matcher that copies the board as it checks it. The 20 `pXYZ` / `fillN` predicates become
   instances of three parameterised relations, and every `otherwise.` is a trailing guard-free clause
-  (safe: the board cells are always bound). `go()` = 65 (~20 s); `count_packings` poses smaller
+  (safe: the board cells are always bound). `go()` = 65 (~9 s); `count_packings` poses smaller
   boxes for the test.
 - **`mastermind.py`** — `mastermind.kl1`: **generate-and-test search** over the 3⁴ guesses with
   a difference list of solutions (`go(3, 3)` = 860, the original's own count). Its `otherwise.`
@@ -381,7 +394,7 @@ In `examples/` (each also an executable test asserting the KL1 result):
   `OldBulls =\= Bulls` as two clauses; `X =\= Y`; `N > 0`): `Bulls` / `Cows` arrive from a
   concurrent `eval`, so a guard-free fallback would commit before they are bound — the rule of
   thumb is in §7. The test asserts the reference-checked `go(2, 3)` = 81; `main()` runs
-  `go(3, 3)` (about 100 s, most of it Python's cyclic GC — see §7).
+  `go(3, 3)` (about 28 s; §5.3 explains why it used to take 100).
 - **`life.py`** — `life.kl1`, the 1987 "counterfeit" Game of Life: a 38×38 torus of **cell
   processes**, each wired to four neighbours by two streams per direction and advancing with
   **no world clock** (a cell steps as soon as one state from each neighbour has arrived).
@@ -456,13 +469,11 @@ remain.
   input, so when that input may still be on its way the negated guards have to be written
   out (`mastermind`). A real `otherwise()` — a clause that waits until every clause above it
   has *failed* — is the obvious next DSL feature; it would also unblock `turtles`.
-- **Cyclic-GC overhead at scale.** A breadth-first search keeps millions of small, mutually
-  referencing objects alive (goals, variables, waiters), and CPython's cyclic collector keeps
-  re-walking that frontier: `mastermind` `go(3, 3)` takes ~98 s with the collector on and
-  ~17 s with it frozen and disabled (`gc.freeze()` + `gc.disable()`); `go(2, 3)` ~4 s vs
-  ~1.5 s. Freezing after set-up, raising the thresholds, or shrinking the tracked object count
-  (`__slots__`, fewer closures) is the obvious engine-level win; the examples themselves have
-  nothing to fix.
+- **Collector time on the live frontier.** With finished goals now freed by reference
+  counting (§5.3), the cycle collector still spends about 40 % of `mastermind go(3, 3)`
+  re-walking the goals that are alive; disabling it around a run cut one 25 s measurement to
+  15 s, at no memory cost now that no garbage is cyclic. A caller can do that today; whether the library
+  should offer it as an opt-in (it is process-global state) is open.
 - **Relation inheritance** — clause collection uses a subclass's own methods only, so a
   `Relation` subclass does not inherit a parent's clauses.
 - **`unify` uses Python `==`**, so `1 == 1.0` unifies — a divergence from KL1's distinct
