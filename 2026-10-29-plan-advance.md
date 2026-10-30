@@ -412,3 +412,17 @@ of 1.8's flag tests, one test per layer asserting a woken reduction leaves no cy
 24 → 9.5 s, `puzzle` 19.5 → 8.9 s, `go(2, 3)` 3.7 → 1.4 s; `examples/mastermind.py` < 30 s.
 E + C would add another 1.7× (25 → 15 s, memory unchanged); left as an open question in §7.
 Lesson: find the garbage's source before tuning the collector.
+
+**Phase 2 (2026-10-29).** `@otherwise` landed with the fixed semantics, read precisely: it marks
+the *first* clause after a KL1 `otherwise.` and the rest of the group stays `@clause`, so KL1's
+group behaviour (`otherwise. c1. c2.`: `c2` is tried when `c1` suspends) is exact and the
+"consecutive defaults" caveat is gone. Deviations: an index set `_otherwise_at` beside the
+clause tuple instead of a `_ClauseSpec` record (smaller change); the raw layer's form is
+`@predicate.otherwise` rather than `clause(fn, *, otherwise=True)`; `dsl` has no `__all__`, so
+2.1's export is the docstrings only; the §4 table has no status column, so it is unchanged. The
+seven new tests (six DSL, one raw) pass, and the four waiting ones fail on a copy without the
+barrier. `turtles` was ported by one role-first fork: N = 4, equal to a brute-force placer
+order included, 2.3 s at full size so the test runs the original. A guard-free `send` still
+gives 4 but takes 50.2 s — the nil check is what prunes. Conversions kept every result (92, 65,
+144 × 3, 860, 81). Timings back to back (2.8): `mastermind go(3, 3)` 26.3 → 22.3 s (the negated
+guards no longer run), `puzzle go()` 8.4 → 8.4 s.

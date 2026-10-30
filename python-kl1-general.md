@@ -63,7 +63,8 @@ are discarded. Unlike Prolog, there is **no backtracking** — once committed, t
 choice is final. This is what makes the model tractable for real parallelism.
 
 `otherwise.` (seen in `examples/turtles.kl1`) marks a *default* clause: it commits
-only if every clause **above** it failed. It is the ordered-fallback escape hatch.
+only if every clause **above** it failed. It is the ordered-fallback escape hatch. In
+python-kl1 it is the `@otherwise` decorator (§5.2).
 
 ### 2.3 Suspension (data-flow synchronization)
 
@@ -297,6 +298,13 @@ class Factorial(Relation):
 - **Merge** `merge(*streams)` — KL1's fair many-to-one channel as an expression: pass it to a
   consumer or bind an output with `tell(out, merge(xs, ys))`; dynamic fan-in is nesting,
   `tell(ins, merge(in1, in2))`.
+- **Default clauses** `@otherwise` (in place of `@clause`) — KL1's `otherwise.`: the reducer
+  stops there while any clause above is still waiting for input and suspends the goal on
+  those variables, so the default runs only once every clause above has *failed*. It marks
+  the first clause of a group: `otherwise. c1. c2.` is `@otherwise c1` and `@clause c2`, and
+  a second `otherwise.` is a second `@otherwise`. A trailing guard-free `@clause` is *not* a
+  default: it commits as soon as it is tried, even before the data the clauses above wait
+  for has arrived. The raw layer has the same as `@predicate.otherwise`.
 - **Running a relation:** outside a session, `rel(*inputs)` is the **eager** query (append a
   fresh result, run to quiescence, return the value — an atom or a `Cons`-stream; `to_list`
   materialises a stream). Inside a **`session()`** (or a clause body), `rel(*args)` instead
@@ -374,7 +382,7 @@ In `examples/` (each also an executable test asserting the KL1 result):
 - **`kkqueen.py`** — `kkqueen.kl1`: N-Queens counting via a **difference-list of solutions**
   (no `merge`); the guard disjunction becomes committed-choice ordering.
 - **`qlay.py`** — `qlay.kl1`: N-Queens via the **layered-streams** technique (Okimura); the
-  two `otherwise.` defaults become a guard-free `keep` clause after the skip clauses.
+  two `otherwise.` defaults are `@otherwise` `keep` clauses after the skip clauses.
 - **`merge.py`** — `merge.kl1`: the **merge** primitive — K one-element streams fanned into one,
   counted, and checked to close; nested mergers stand in for KLIC's input vector.
 - **`pp.py`** — `pp.kl1`: the **nested-copy benchmark** — `p` and `r` wired into a feedback
@@ -385,15 +393,14 @@ In `examples/` (each also an executable test asserting the KL1 result):
   dataflow computation**, the solutions collected in difference lists chained through every piece
   orientation; small pieces head-unify their footprint, large ones go through `match`, the codeword
   template matcher that copies the board as it checks it. The 20 `pXYZ` / `fillN` predicates become
-  instances of three parameterised relations, and every `otherwise.` is a trailing guard-free clause
-  (safe: the board cells are always bound). `go()` = 65 (~9 s); `count_packings` poses smaller
+  instances of three parameterised relations, and every `otherwise.` is an `@otherwise` clause.
+  `go()` = 65 (~9 s); `count_packings` poses smaller
   boxes for the test.
 - **`mastermind.py`** — `mastermind.kl1`: **generate-and-test search** over the 3⁴ guesses with
   a difference list of solutions (`go(3, 3)` = 860, the original's own count). Its `otherwise.`
-  defaults become **negated guards** (`Bulls < CL, N+1 >= NG`; `OldCows =\= Cows` /
-  `OldBulls =\= Bulls` as two clauses; `X =\= Y`; `N > 0`): `Bulls` / `Cows` arrive from a
-  concurrent `eval`, so a guard-free fallback would commit before they are bound — the rule of
-  thumb is in §7. The test asserts the reference-checked `go(2, 3)` = 81; `main()` runs
+  defaults are `@otherwise` clauses, and here they matter: `Bulls` / `Cows` arrive from a
+  concurrent `eval`, so a guard-free fallback would commit before they are bound (the port
+  used to write the negated guards out instead). The test asserts the reference-checked `go(2, 3)` = 81; `main()` runs
   `go(3, 3)` (about 28 s; §5.3 explains why it used to take 100).
 - **`life.py`** — `life.kl1`, the 1987 "counterfeit" Game of Life: a 38×38 torus of **cell
   processes**, each wired to four neighbours by two streams per direction and advancing with
@@ -401,6 +408,18 @@ In `examples/` (each also an executable test asserting the KL1 result):
   Exercises torus wiring by unification (`connect_row`, `make_col`'s wrap clauses), 1444
   long-lived processes and ~173 000 data-flow reductions; `go(120, 38, 38)` = 711,
   cross-checked against a lockstep Python simulation on six shapes.
+- **`turtles.py`** — `turtles.kl1` (E. Tick's turtles card puzzle, "layered streams: nil
+  check"): nine head/tail turtle cards laid on a 3×3 grid as **one layered stream**, built
+  position by position. `orient`/`rotate` offer every unused card in every orientation (card 1
+  in one only, to break the symmetry), `filter` prunes the incoming layer against each new
+  card under that position's constraint row (`x` no contact, `t/r/b/l` an edge pair checked by
+  `flip`), and `fromLStoL`/`final` flatten and reorder the survivors. `go(N, A)` = **4**
+  solutions, each a list of nine `N-T` functors (`struct('-', n, t)`), matched against a
+  brute-force placer, order included. All three `otherwise.` sites are `@otherwise`, and
+  `send`'s is the one a guard-free fallback cannot render: its `T` is the output of a
+  concurrently running `filter`, and the default must wait until `T` is known not to be `[]`.
+  A guard-free `send` still finds the 4 solutions but never drops a dead branch — 50 s
+  instead of 2.3 s. The nil check *is* the pruning.
 - **`wave.py`** — `wave.kl1` (Foster's *Waves*): a **D × (D−2) × D block of `node` processes**
   joined by `{In, Out}` stream pairs. A *wiring phase* first: face points send `step(N, S, A)`
   requests that `filter`/`bfilter` route N hops inward, and a `done` token threaded through
@@ -423,10 +442,8 @@ different KL1 idioms:
 
 Both give the same counts (N=8 → 92) and, in the cooperative engine, comparable time at these
 sizes; the layered-streams sharing is what pays off at larger N. Notably, **neither needed
-`merge` or `otherwise`** — the guard disjunctions and ordered defaults both reduce to
-committed-choice ordering with a guard-free fallback clause (the same trick in both files, and
-in `puzzle`; it is safe there because the board is bound before the goal runs — §7 gives the
-rule for when it is not).
+`merge`**: the guard disjunctions reduce to committed-choice ordering, and `qlay`'s ordered
+defaults are `@otherwise` clauses.
 
 The full backlog of unported programs — and which are blocked by a missing feature — is in
 Appendix C.
@@ -461,14 +478,9 @@ remain.
 
 - API ergonomics: how close to the `Head :- Guard | Body` notation can we get in
   idiomatic Python without a parser?
-- **Priority / `@priority`, `otherwise`, `after(N)`** — scheduling/control annotations are
-  not exposed (the FIFO engine ignores priority). `otherwise` can be *rendered* today, with
-  a rule of thumb: when everything the earlier clauses inspect is already bound, a trailing
-  guard-free clause is the default (`qlay`, `puzzle`) — but a guard-free clause commits as
-  soon as it is tried, even while the clauses above it are merely *suspended* on unbound
-  input, so when that input may still be on its way the negated guards have to be written
-  out (`mastermind`). A real `otherwise()` — a clause that waits until every clause above it
-  has *failed* — is the obvious next DSL feature; it would also unblock `turtles`.
+- **Priority / `@priority`, `after(N)`** — scheduling/control annotations are not exposed
+  (the FIFO engine ignores priority). `otherwise`, once in this bullet, is now `@otherwise`
+  (§5.2).
 - **Collector time on the live frontier.** With finished goals now freed by reference
   counting (§5.3), the cycle collector still spends about 40 % of `mastermind go(3, 3)`
   re-walking the goals that are alive; disabling it around a run cut one 25 s measurement to
@@ -720,7 +732,7 @@ Syntax: a clause is `head :- guard | body.` — `:-…|` is the **commit** opera
 - **Ship these idioms first (in order):** (1) ✓ stream producer/consumer + suspension
   (`sieve`); (2) `merge` (fair ✓ `merge`, biased not yet); (3) ✓ perpetual stream-server
   object with reply-paid-envelope (`bank_account`); (4) difference-list bounded buffer;
-  (5) `otherwise` + priority scheduling; (6) ✓ short-circuit termination (`wave`); (7) OR→AND
+  (5) `otherwise` ✓ (`@otherwise`) + priority scheduling (not yet); (6) ✓ short-circuit termination (`wave`); (7) OR→AND
   concurrent search skeleton. These cover chapters 4–7. ✓ = shipped as a ported example, as
   of 2026-10-29.
 - **Pitfalls the book explicitly warns about:**
@@ -886,9 +898,9 @@ Everything else in KL1 is a pattern layered on top of that.
 
 ## Appendix C: KL1 programs not yet ported (the backlog)
 
-Sixteen programs are now ported to `examples/` (see §6): `not`, `factorial`, `sieve` (from
+Seventeen programs are now ported to `examples/` (see §6): `not`, `factorial`, `sieve` (from
 `primes_sieve`), `bank_account`, `qsort`, `hanoi`, `deriv`, `pascal`, `kkqueen`, `qlay`,
-`merge`, `pp`, `mastermind`, `puzzle`, `wave`, and `life`.
+`merge`, `pp`, `mastermind`, `puzzle`, `wave`, `life`, and `turtles`.
 This appendix analyses the rest — **✓ ported**, **○ feasible** with the current primitives (not yet
 written), or **✗ blocked** by a missing feature (summarised in §C.4).
 
@@ -907,12 +919,12 @@ Standalone `.kl1` programs shipped with KLIC (`fact` → `examples/factorial.py`
 | `pp` | nested-list generator (benchmark) | ✓ `examples/pp.py` |
 | `kkqueen` | N-Queens (counts solutions) | ✓ `examples/kkqueen.py` (difference-list solutions — no `merge`) |
 | `qlay` | N-Queens via layered streams | ✓ `examples/qlay.py` |
-| `puzzle` | a combinatorial puzzle | ✓ `examples/puzzle.py` (its `otherwise.` defaults become guard-free fallback clauses — the board is always bound) |
-| `mastermind` | Mastermind solver | ✓ `examples/mastermind.py` (its `otherwise.` defaults become explicit negated guards — the inputs arrive concurrently) |
+| `puzzle` | a combinatorial puzzle | ✓ `examples/puzzle.py` (`otherwise.` → `@otherwise`) |
+| `mastermind` | Mastermind solver | ✓ `examples/mastermind.py` (`otherwise.` → `@otherwise`, which waits for the concurrently computed score) |
 | `wave` | a cellular "wave" simulation | ✓ `examples/wave.py` (a result list of the final node states is added; the original only reports termination) |
 | `life` | Conway's Game of Life | ✓ `examples/life.py` (checked against a lockstep Python reference; `@lower_priority` ignored) |
 | `prio` | priority demo | ✗ needs `@priority` scheduling |
-| `turtles` | a tiling puzzle | ✗ needs `otherwise` (ordered default clause) |
+| `turtles` | a tiling puzzle | ✓ `examples/turtles.py` (layered streams; `send`'s `@otherwise` waits on a concurrent `filter`) |
 | `merge` | the `merge` builtin demo | ✓ `examples/merge.py` (nested mergers stand in for the input vector) |
 | `atomfunc` | atom & functor builtins | ✗ needs atom builtins (`make_atom`, `intern`, …) |
 | `vecstr` | vector & string builtins | ✗ needs aggregate types (vectors `{..}`, strings) |
@@ -961,8 +973,8 @@ chapter:
 
 The `✗` rows above, and much of §C.3, reduce to a handful of gaps (cf. §7):
 
-- **`@priority` / `otherwise` / `after(N)`** — scheduling and control annotations (`prio`,
-  `turtles`, and the biased-merge / dining-philosophers fragments).
+- **`@priority` / `after(N)`** — scheduling and control annotations (`prio`, and the
+  biased-merge / dining-philosophers fragments).
 - **An I/O layer** — KL1 file / socket streams (`unix:` / `klicio`); the examples currently
   drive I/O from Python instead (`iotest`, `client`, `server`).
 - **Aggregate & atom builtins** — vectors `{..}`, strings-as-objects, `make_atom` / `intern`
@@ -972,13 +984,11 @@ The `✗` rows above, and much of §C.3, reduce to a handful of gaps (cf. §7):
 Functors (needed by `deriv`, the object pattern, and much of §C.3) are already available
 (`struct` / `unstruct`), and so now is **merge** (`merge` / `merge_streams`), which unblocks the
 shared-server and all-solutions fragments and the Ch. 6 search combiners; difference lists and
-streams need no new features. With `pp`, `puzzle`, `mastermind`, `wave` and `life` ported,
-every KLIC example the current primitives allow is in `examples/`. What is left in §C.1 is
-either blocked — `turtles` on `otherwise`, `prio` on priority scheduling, `iotest` / `client` /
-`server` on the I/O layer, `atomfunc` / `vecstr` / `cmac` on builtins and directives — or not
-worth a file of its own (`primes` / `primesp` are `sieve.py` again, the latter minus its
-priority hint; `parsetest` wants string builtins to be interesting). So the plan from here is
-the §C.3 fragments that merge unblocks (the shared-server agents of Ch. 5, the Ch. 6 search
-skeleton), and one feature: **`otherwise` is now the highest-value gap** — `puzzle` and
-`mastermind` had to render it by hand (§7 gives the rule of thumb), and it is all that stands
-between `turtles` and a port.
+streams need no new features, and `otherwise` is `@otherwise` (§5.2), which brought in
+`turtles`. Every KLIC example the current primitives allow is in `examples/`. What is left in
+§C.1 is either blocked — `prio` on priority scheduling, `iotest` / `client` / `server` on the
+I/O layer, `atomfunc` / `vecstr` / `cmac` on builtins and directives — or not worth a file of
+its own (`primes` / `primesp` are `sieve.py` again, the latter minus its priority hint;
+`parsetest` wants string builtins to be interesting). So the plan from here is the §C.3
+fragments that merge unblocks (the shared-server agents of Ch. 5, the Ch. 6 search skeleton),
+and priority scheduling.

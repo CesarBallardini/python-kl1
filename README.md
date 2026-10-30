@@ -33,7 +33,8 @@ findings and design notes distilled from the KLIC reference implementation.
 - **`Engine`** — a cooperative, deterministic scheduler that interleaves goals until
   quiescence. Also a context manager (`with Engine() as engine: ...` runs on exit).
 - **Clause DSL** — write predicates as `Relation` subclasses whose clauses are methods:
-  committed choice, guards that suspend on unbound data, and `[H|T]` / `[]` list patterns.
+  committed choice, guards that suspend on unbound data, `[H|T]` / `[]` list patterns, and
+  `@otherwise` default clauses that wait until every clause above them has failed.
 
 ## Quickstart
 
@@ -89,7 +90,7 @@ src/python_kl1/
                   #   list + functor patterns; calling a relation (eager) or session (lazy)
 examples/         # ports of the KL1 originals (not_gate, factorial, sieve, bank_account,
                   #   qsort, hanoi, deriv, pascal, kkqueen, qlay, merge, pp, mastermind,
-                  #   puzzle, wave, life)
+                  #   puzzle, wave, life, turtles)
 tests/            # unit tests per module
 tutorial.md       # hands-on guide: concepts, setup, calling styles, when to use it
 python-kl1-general.md   # KL1 findings + library design notes

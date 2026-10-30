@@ -31,6 +31,9 @@ expressions (``n - 1``, ``r1 * n``) and guards (``n == 1``, ``n > 1``):
   ``nil`` construct list cells for ``tell``;
 - ``merge(*streams)`` is KL1's many-to-one ``merge``: a fair fan-in of several streams
   into one (``tell(out, merge(xs, ys))`` binds an output to it);
+- ``@otherwise`` (in place of ``@clause``) is KL1's ``otherwise.``: that clause, and those
+  after it, are tried only once every clause above has *failed* -- if one is still waiting
+  for input, the goal waits too;
 - calling ``self`` (or another relation) inside a body spawns a concurrent sub-goal;
 - calling a relation ``rel(*inputs)`` at top level runs it and returns the bound result;
   inside a :func:`session` it spawns lazily instead (you pass and read the output vars).
@@ -423,11 +426,12 @@ def merge(*streams: Operand) -> Term:
 class _ClauseMethod:
     """Marker wrapping a method flagged as a clause; unwrapped at subclass creation."""
 
-    __slots__ = ('fn',)
+    __slots__ = ('fn', 'otherwise')
 
-    def __init__(self, fn: Callable[..., None]) -> None:
-        """Hold the underlying clause method ``fn``."""
+    def __init__(self, fn: Callable[..., None], *, otherwise: bool) -> None:
+        """Hold the underlying clause method ``fn`` and whether it opens an ``otherwise`` group."""
         self.fn = fn
+        self.otherwise = otherwise
 
 
 def clause(method: Callable[..., None]) -> _ClauseMethod:
@@ -436,11 +440,27 @@ def clause(method: Callable[..., None]) -> _ClauseMethod:
     Clauses are collected, in definition order, when the subclass is created; the first
     whose guards pass commits.
     """
-    return _ClauseMethod(method)
+    return _ClauseMethod(method, otherwise=False)
+
+
+def otherwise(method: Callable[..., None]) -> _ClauseMethod:
+    """Mark a clause as the first one after KL1's ``otherwise.`` (decorator).
+
+    It -- and every clause after it -- is tried only once every clause *above* it has
+    **failed**; if any of them merely suspended, the goal waits for its input instead. Mark
+    only the first clause of the group: ``otherwise. c1. c2.`` is ``@otherwise c1`` and
+    ``@clause c2``, and a further ``otherwise.`` is a further ``@otherwise``.
+
+    A trailing guard-free ``@clause`` is not the same thing: it commits as soon as it is
+    tried, even while the clauses above it are still waiting for data.
+    """
+    return _ClauseMethod(method, otherwise=True)
 
 
 class Relation:
     """Base class for a KL1 relation: subclass it and mark clauses with :func:`clause`.
+
+    Mark the first clause after a KL1 ``otherwise.`` with :func:`otherwise` instead.
 
     The clauses are methods; calling an instance runs the relation as a query::
 
@@ -462,16 +482,21 @@ class Relation:
     """
 
     _clause_methods: ClassVar[tuple[Callable[..., None], ...]] = ()
+    _otherwise_at: ClassVar[frozenset[int]] = frozenset()
 
     def __init_subclass__(cls, **kwargs: object) -> None:
-        """Collect the subclass's :func:`clause`-marked methods, in definition order."""
+        """Collect the subclass's clause-marked methods, in definition order."""
         super().__init_subclass__(**kwargs)
         methods: list[Callable[..., None]] = []
+        otherwise_at: set[int] = set()
         for name, value in list(vars(cls).items()):
             if isinstance(value, _ClauseMethod):
                 setattr(cls, name, value.fn)  # unwrap: leave a normal method on the class
+                if value.otherwise:
+                    otherwise_at.add(len(methods))
                 methods.append(value.fn)
         cls._clause_methods = tuple(methods)
+        cls._otherwise_at = frozenset(otherwise_at)
 
     def __init__(self) -> None:
         """Bind this instance's clauses (each becomes a callable taking the goal args)."""
@@ -516,9 +541,14 @@ def _reduce(engine: Engine, relation: Relation, args: tuple[Operand, ...], wrapp
     The retry is a fresh ``partial`` rather than a closure over itself: a goal that refers to
     itself is a reference cycle, which only CPython's cycle collector can free, whereas this
     way a finished goal -- and every term it held -- is freed by reference counting.
+
+    An :func:`otherwise` clause is a barrier: reaching it while an earlier clause is still
+    waiting for input suspends the goal there, so the default never pre-empts that clause.
     """
     waiting: list[Var] = []
-    for clause in relation._clauses:
+    for index, clause in enumerate(relation._clauses):
+        if waiting and index in relation._otherwise_at:
+            break
         _ENGINE_STACK.append(engine)
         try:
             clause(*wrapped)

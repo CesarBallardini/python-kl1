@@ -136,10 +136,7 @@ Substitutions, in source order:
 - ``integer(L)`` is ``guard(v >= 0)``: states are counts, so the comparison is the type test,
   and like the original it is what makes ``checklist`` wait for the neighbour's value;
 - ``wait(Sync)`` is ``empty(sync)`` -- ``checklist`` binds ``Sync`` to ``[]``;
-- ``go``'s ``otherwise`` is a trailing guard-free clause. That is safe because ``D`` and
-  ``Stop`` are bound when ``go`` runs, so the first clause *fails* rather than suspends
-  (contrast ``mastermind``, whose inputs arrive concurrently and whose negated guards must be
-  written out);
+- ``go``'s ``otherwise`` is an ``@otherwise`` clause;
 - KL1's ``L``/``R`` are ``left``/``right`` (``l`` is not a usable Python name).
 
 One deliberate deviation: ``S = yes`` says nothing about the mesh, so the port threads a
@@ -160,6 +157,7 @@ from python_kl1.dsl import (
     fresh,
     guard,
     nil,
+    otherwise,
     session,
     struct,
     tell,
@@ -1103,9 +1101,12 @@ class Go(Relation):
         self.gen(d - 2, d, ks)
         self.start(done, go)
 
-    @clause
+    @otherwise
     def refuse(self, d: Term, stop: Term, s: Term, states: Term) -> None:
-        """go(_,_,S) :- S=no.  -- under otherwise: D and Stop are bound, so the first clause failed, not suspended."""
+        """Anything else: answer ``no``.
+
+        otherwise. go(_,_,S) :- S=no.
+        """
         tell(s, 'no')
         tell(states, nil())
 

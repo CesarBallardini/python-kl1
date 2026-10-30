@@ -44,21 +44,29 @@ Substitutions: ``p(Bulls,Cows,Guess)`` is ``struct('p', ...)`` / ``unstruct(p, '
 guard arithmetic (``add/3``, ``:=``) is Python operators on terms, and the body goal
 ``N := CL-1`` a ``tell`` that waits for ``CL``; ``count/2`` is ``count/3`` started at 0.
 
-**The lesson: ``otherwise`` as negated guards.** ``Bulls`` and ``Cows`` are produced by a
-concurrent ``eval``, so when ``loop`` and ``check`` first run those inputs are still unbound.
-A guard-free fallback clause -- the trick ``qlay`` uses -- would commit at once: the DSL does
-not make a fallback wait for earlier clauses that merely *suspended*, which is exactly what
-KL1's ``otherwise`` does. So here each ``otherwise`` clause repeats the negation of the guards
-before it (``Bulls < CL, N+1 >= NG``; ``OldCows =\= Cows`` or ``OldBulls =\= Bulls``, one
-clause each; ``X =\= Y``; ``N > 0``), which makes it suspend on the same variables and commit
-only once the data has arrived. Rule of thumb: a guard-free fallback is an ``otherwise`` only
-when everything the earlier clauses inspect is already bound. (``inexact``'s one ``otherwise``
-is dropped: it only shields the last two clauses from ``Choice = []``, where the second answers
-``I = N`` anyway and the ``delete`` path returns to ``inexact`` with ``I`` unchanged.) Run it
+**``otherwise`` waits for the score.** ``Bulls`` and ``Cows`` are produced by a concurrent
+``eval``, so when ``loop`` and ``check`` first run those inputs are still unbound. Each
+``otherwise.`` is an ``@otherwise`` clause, tried only once every clause above it has
+*failed*: while ``solved`` or ``consistent`` is still waiting for the score, the default waits
+too. A trailing guard-free ``@clause`` would commit at once, before the score exists. Run it
 with ``uv run python examples/mastermind.py``.
 """
 
-from python_kl1.dsl import Relation, Term, clause, cons, empty, fresh, guard, nil, struct, tell, uncons, unstruct
+from python_kl1.dsl import (
+    Relation,
+    Term,
+    clause,
+    cons,
+    empty,
+    fresh,
+    guard,
+    nil,
+    otherwise,
+    struct,
+    tell,
+    uncons,
+    unstruct,
+)
 
 
 class Code(Relation):
@@ -165,13 +173,12 @@ class GenGuess(Relation):
         guard(n == 0)
         tell(out, ins)
 
-    @clause
+    @otherwise
     def more(self, n: Term, ins: Term, colours: Term, out: Term) -> None:
-        """The ``otherwise.`` clause, its implied guard ``N > 0`` written out.
+        """Extend every partial guess by one more colour.
 
-        genGuess(N,In,L,Out) :- N1:=N-1 | addmyself(In,L,Temp,[]), genGuess(N1,Temp,L,Out).
+        otherwise. genGuess(N,In,L,Out) :- N1:=N-1 | addmyself(In,L,Temp,[]), genGuess(N1,Temp,L,Out).
         """
-        guard(n > 0)
         temp = fresh()
         _addmyself(ins, colours, temp, nil())
         self(n - 1, temp, colours, out)
@@ -208,15 +215,14 @@ class Exact(Relation):
         guard(h == h2)
         self(t, t2, n, i + 1, x1, y1)
 
-    @clause
+    @otherwise
     def miss(self, xs: Term, ys: Term, n: Term, i: Term, x1: Term, y1: Term) -> None:
-        r"""The ``otherwise.`` clause, its implied guard ``X =\= Y`` written out.
+        """No bull here: keep both colours for the cows count.
 
-        exact([X|T1],[Y|T2],N,I,X1,Y1) :- X1 = [X|S1], Y1 = [Y|S2], exact(T1,T2,N,I,S1,S2).
+        otherwise. exact([X|T1],[Y|T2],N,I,X1,Y1) :- X1 = [X|S1], Y1 = [Y|S2], exact(T1,T2,N,I,S1,S2).
         """
         x, t1 = uncons(xs)
         y, t2 = uncons(ys)
-        guard(x != y)  # the negated head unification of `bull`
         s1, s2 = fresh(), fresh()
         tell(x1, cons(x, s1))
         tell(y1, cons(y, s2))
@@ -224,10 +230,7 @@ class Exact(Relation):
 
 
 class Inexact(Relation):
-    """inexact(Xs, Choice, Cows, I): Cows = I + leftovers of Xs that occur somewhere in Choice.
-
-    The ``otherwise.`` after the first clause is dropped; the module docstring says why it is safe.
-    """
+    """inexact(Xs, Choice, Cows, I): Cows = I + leftovers of Xs that occur somewhere in Choice."""
 
     @clause
     def no_choice(self, xs: Term, choice: Term, n: Term, i: Term) -> None:
@@ -235,9 +238,12 @@ class Inexact(Relation):
         empty(choice)
         tell(n, i)
 
-    @clause
+    @otherwise
     def done(self, xs: Term, choice: Term, n: Term, i: Term) -> None:
-        """inexact([], _,N,I) :- I=N."""
+        """No leftovers: the count is complete.
+
+        otherwise. inexact([], _,N,I) :- I=N.
+        """
         empty(xs)
         tell(n, i)
 
@@ -266,14 +272,14 @@ class Delete(Relation):
         tell(f, y)
         _inexact(tt, new_choice, n, i + 1)
 
-    @clause
+    @otherwise
     def skip(self, lst: Term, x: Term, f: Term, new_choice: Term, choice: Term, tt: Term, n: Term, i: Term) -> None:
-        r"""The ``otherwise.`` clause, its implied guard ``X1 =\= X`` written out.
+        """Not this colour: keep it and look further down the list.
 
-        delete([X1|Y],X,F,NewChoice,Choice,Tt,N,I) :- F = [X1|Z], delete(Y,X,Z,NewChoice,Choice,Tt,N,I).
+        otherwise. delete([X1|Y],X,F,NewChoice,Choice,Tt,N,I) :- F = [X1|Z],
+            delete(Y,X,Z,NewChoice,Choice,Tt,N,I).
         """
         x1, y = uncons(lst)
-        guard(x1 != x)  # the negated head unification of `found`
         z = fresh()
         tell(f, cons(x1, z))
         self(y, x, z, new_choice, choice, tt, n, i)
@@ -311,7 +317,7 @@ class Loop(Relation):
         guard(bulls == cl)
         tell(s0, cons(a, s1))
 
-    @clause
+    @otherwise
     def deeper(
         self,
         bulls: Term,
@@ -325,16 +331,16 @@ class Loop(Relation):
         s0: Term,
         s1: Term,
     ) -> None:
-        """The first ``otherwise.`` clause; its own guard ``Bulls < CL`` already excludes ``solved``.
+        """Not solved yet, and guesses left: try another round.
 
-        loop(Bulls,Cows,Guess,CL,Plist,A,N,NG,S0,S1) :- Bulls < CL, add(N, 1, N1), N1 < NG |
+        otherwise. loop(Bulls,Cows,Guess,CL,Plist,A,N,NG,S0,S1) :- Bulls < CL, add(N, 1, N1), N1 < NG |
             spawn(Plist,Plist,CL,[p(Bulls,Cows,Guess)|A],N1,NG,S0,S1).
         """
         guard(bulls < cl)
         guard(n + 1 < ng)
         _spawn(plist, plist, cl, cons(struct('p', bulls, cows, guess), a), n + 1, ng, s0, s1)
 
-    @clause
+    @otherwise
     def exhausted(
         self,
         bulls: Term,
@@ -348,12 +354,10 @@ class Loop(Relation):
         s0: Term,
         s1: Term,
     ) -> None:
-        """The second ``otherwise.`` clause, its implied guards ``Bulls < CL, N+1 >= NG`` written out.
+        """Out of guesses: this search path yields no solution.
 
-        loop(_,_,_,_,_,_,_,_,S0,S1) :- S0=S1.
+        otherwise. loop(_,_,_,_,_,_,_,_,S0,S1) :- S0=S1.
         """
-        guard(bulls < cl)
-        guard(n + 1 >= ng)
         tell(s0, s1)
 
 
@@ -382,8 +386,8 @@ class Check(Relation):
         guard(old_bulls == bulls)
         _test(gs, guess, plist, cl, a, n, ng, s0, s1)
 
-    @clause
-    def cows_differ(
+    @otherwise
+    def inconsistent(
         self,
         old_cows: Term,
         cows: Term,
@@ -399,35 +403,10 @@ class Check(Relation):
         s0: Term,
         s1: Term,
     ) -> None:
-        r"""The ``otherwise.`` clause, first half: its implied guard ``OldCows =\= Cows``.
+        """The guess contradicts an earlier score: this search path yields no solution.
 
-        check(_,_,_,_,_,_,_,_,_,_,_,S0,S1) :- S0=S1.
+        otherwise. check(_,_,_,_,_,_,_,_,_,_,_,S0,S1) :- S0=S1.
         """
-        guard(old_cows != cows)
-        tell(s0, s1)
-
-    @clause
-    def bulls_differ(
-        self,
-        old_cows: Term,
-        cows: Term,
-        old_bulls: Term,
-        bulls: Term,
-        gs: Term,
-        guess: Term,
-        cl: Term,
-        plist: Term,
-        a: Term,
-        n: Term,
-        ng: Term,
-        s0: Term,
-        s1: Term,
-    ) -> None:
-        r"""The ``otherwise.`` clause, second half: its implied guard ``OldBulls =\= Bulls``.
-
-        check(_,_,_,_,_,_,_,_,_,_,_,S0,S1) :- S0=S1.
-        """
-        guard(old_bulls != bulls)
         tell(s0, s1)
 
 
