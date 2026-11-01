@@ -326,7 +326,10 @@ class Factorial(Relation):
   is swappable in principle (goals/streams reference it only as a type).
 - **Guard safety:** enforced by construction — guards are `ask` (read/suspend only), bodies
   are `tell`; `guard` and `tell` are separate primitives.
-- **Unification:** yes — write-once, union-find, structural over `Cons` and `Struct`.
+- **Unification:** yes — write-once, union-find, structural over `Cons` and `Struct`. Atoms
+  unify only with an equal atom of the same type, as KL1 keeps integers and floats distinct:
+  `1` does not unify with `1.0`, nor `True` with `1` (Python's `==` would say both are
+  equal). Arithmetic comparison in a guard still compares numbers by value — KL1's `=:=`.
 - **Value layer:** an explicit `Value` union (not `object`), including functors (`Struct`).
 - **Eager vs. lazy:** calling a relation is eager for a single-atom query; `session()` is the
   lazy, uniform, composable form for streams, the object pattern, and dataflow composition.
@@ -475,7 +478,8 @@ remain.
   fine-grained; native threads may be too heavy for `primes_sieve` at scale.)
 - **Guard safety** (decided: the ask/tell split). How faithfully do we enforce the *guard
   cannot bind caller vars* rule — statically, at runtime, or by convention?
-- **Unification** (decided: structural over `Cons` and `Struct`). Do we need full
+- **Unification** (decided: structural over `Cons` and `Struct`; atoms only with the same
+  type, so `1` is not `1.0`). Do we need full
   **unification** (two unbound vars, compound terms) or is **assignment + pattern-match on
   Python data** enough for the target programs?
 - **Value layer** (decided: an explicit `Value` union with functors). Scope of the **value
@@ -496,8 +500,12 @@ remain.
   should offer it as an opt-in (it is process-global state) is open.
 - **Relation inheritance** — clause collection uses a subclass's own methods only, so a
   `Relation` subclass does not inherit a parent's clauses.
-- **`unify` uses Python `==`**, so `1 == 1.0` unifies — a divergence from KL1's distinct
-  integer and float types.
+- **Integer division and `mod` round like Python, not like KLIC.** The DSL's `//` and `%` are
+  Python's: they floor, and the remainder takes the divisor's sign. KLIC's `/` and `mod`
+  truncate toward zero, and the remainder takes the dividend's sign
+  (`kl1c/tests/arithmetic/int_edge.kl1`: `(-7)/2 = -3`, `(-7) mod 3 = -1`, `7 mod (-3) = 1`;
+  Python gives `-4`, `2`, `-2`). They agree on non-negative operands, which is all the ported
+  examples use.
 
 ---
 

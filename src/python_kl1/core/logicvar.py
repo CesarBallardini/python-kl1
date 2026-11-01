@@ -78,6 +78,11 @@ def unify(a: Value, b: Value) -> None:
     Write-once and structural: aliases two unbound variables, binds an unbound
     variable to a value (waking its suspended callbacks), or recurses into cons
     cells. Raises :class:`UnificationError` on an inconsistent binding.
+
+    Atoms unify only with an equal atom *of the same type*, as in KL1, where integers
+    and floats are distinct: ``1`` does not unify with ``1.0``, nor ``True`` with ``1``.
+    Arithmetic comparison in a guard (``guard(x == 1.0)``) still compares numbers by
+    value -- that is KL1's ``=:=``, not unification.
     """
     a = deref(a)
     b = deref(b)
@@ -105,7 +110,7 @@ def unify(a: Value, b: Value) -> None:
         for arg_a, arg_b in zip(a.args, b.args, strict=True):
             unify(arg_a, arg_b)
         return
-    if a == b:
+    if type(a) is type(b) and a == b:  # KL1's types are distinct: 1 is not 1.0, True is not 1
         return
     raise UnificationError(f'cannot unify {a!r} with {b!r}')
 

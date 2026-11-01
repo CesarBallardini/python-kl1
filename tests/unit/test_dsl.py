@@ -12,6 +12,7 @@ from python_kl1.core import (
     Engine,
     NoMatchingClauseError,
     Struct,
+    UnificationError,
     Var,
     deref,
     drain,
@@ -697,3 +698,32 @@ def test_a_finished_stream_pipeline_leaves_nothing_blocked() -> None:
         engine.run(check=True)
 
     assert to_list(result) == [2, 3, 5, 7, 11]
+
+
+class _IsOne(Relation):
+    @clause
+    def yes(self, x: Term, r: Term) -> None:
+        guard(x == 1.0)
+        tell(r, 'one')
+
+
+class _TellFloat(Relation):
+    @clause
+    def go(self, r: Term) -> None:
+        tell(r, 1.0)
+
+
+@pytest.mark.unit
+def test_an_arithmetic_guard_compares_numbers_across_types() -> None:
+    assert _IsOne()(1) == 'one'  # KL1's =:= compares values: 1 =:= 1.0
+
+
+@pytest.mark.unit
+def test_telling_a_float_to_a_variable_bound_to_an_int_fails() -> None:
+    with session() as engine:
+        r = Var()
+        unify(r, 1)
+        _TellFloat()(r)
+
+        with pytest.raises(UnificationError):  # unification compares types: 1 is not 1.0
+            engine.run()

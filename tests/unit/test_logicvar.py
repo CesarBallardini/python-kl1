@@ -4,7 +4,7 @@ import pytest
 
 from python_kl1.core import Engine
 from python_kl1.core.logicvar import UnificationError, Var, bind, deref, is_bound, unify
-from python_kl1.core.terms import NIL, Cons, Struct
+from python_kl1.core.terms import NIL, Atom, Cons, Struct
 
 
 @pytest.mark.unit
@@ -196,3 +196,35 @@ def test_structs_with_a_different_name_clash() -> None:
 def test_structs_with_a_different_arity_clash() -> None:
     with pytest.raises(UnificationError):
         unify(Struct('f', (1,)), Struct('f', (1, 2)))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(('left', 'right'), [(1, 1.0), (1.0, 1), (True, 1), (1, True), (False, 0), (0, False)])
+def test_atoms_of_different_types_clash_even_when_python_calls_them_equal(left: Atom, right: Atom) -> None:
+    with pytest.raises(UnificationError):  # KL1: integers, floats and atoms are distinct types
+        unify(left, right)
+
+
+@pytest.mark.unit
+def test_a_variable_bound_to_an_int_does_not_accept_a_float() -> None:
+    x = Var()
+    unify(x, 1)
+
+    with pytest.raises(UnificationError):
+        unify(x, 1.0)
+    assert type(deref(x)) is int
+
+
+@pytest.mark.unit
+def test_an_int_and_a_float_clash_inside_structures() -> None:
+    with pytest.raises(UnificationError):
+        unify(Cons(1, NIL), Cons(1.0, NIL))
+    with pytest.raises(UnificationError):
+        unify(Struct('f', (1,)), Struct('f', (1.0,)))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('atom', [1, 1.0, True, 'a', None])
+def test_equal_atoms_of_the_same_type_unify(atom: Atom) -> None:
+    unify(atom, atom)
+    unify(Cons(atom, NIL), Cons(atom, NIL))
