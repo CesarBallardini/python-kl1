@@ -175,7 +175,8 @@ map this to a priority queue for runnable goals; a plain FIFO is a valid first c
 
 `wait(X)` (in `tests/sync/wait.kl1`) is a guard that suspends until `X` is bound
 (instantiated to any non-variable), then succeeds. It is the explicit form of the
-implicit suspension in §2.3 — occasionally useful to force a barrier.
+implicit suspension in §2.3 — occasionally useful to force a barrier. The DSL has it as
+`wait(x)` (§5.2).
 
 ### 3.7 I/O as a stream
 
@@ -197,7 +198,7 @@ data/value layer we get from Python for free.
 | ---------------------------------- | ------------------------------------------------ |
 | `Head :- Guard \| Body`            | guarded clause, committed choice                 |
 | `=`                                | unification / bind a logic variable (write-once) |
-| `wait(X)`                          | suspend until `X` bound                          |
+| `wait(X)`                          | suspend until `X` bound (✓ DSL `wait`)           |
 | streams (`[H\|T]` w/ open tail)    | data-flow channels                               |
 | `generic:new(merge, In, Out)`      | many-to-one fair merge                           |
 | `otherwise`                        | ordered default clause                           |
@@ -208,7 +209,7 @@ data/value layer we get from Python for free.
 
 - `arithmetic/` — `:=`, `+ - * / mod`, bitwise, integer compares.
 - `comparison/` — `@< @=< @> @>=`, `compare/3`, `hash/2`, `\=`.
-- `types/` — `atom integer float list atomic`.
+- `types/` — `atom integer float list atomic`; the first four are DSL guards (§5.2).
 - `float/` — full transcendental set.
 - `aggregates/` — vectors `{..}` and strings (mutable-ish objects via `generic:*`).
 - `atoms/`, `functors/` (`functor/3`, `arg/3`, `setarg/4`, `=..`), `functors`.
@@ -305,6 +306,12 @@ class Factorial(Relation):
   truncating toward zero (`-7 // 2` is `-3`, `-7 % 3` is `-1`); `bool` is not a number.
 - **List patterns** `uncons` / `empty` (`[H|T]` / `[]`) with constructors `cons` / `nil`;
   **functor patterns** `unstruct(term, name, arity)` with constructor `struct(name, *args)`.
+- **`wait` and the type guards** — `wait(x)` is KL1's `wait(X)`: it suspends the goal until
+  `x` is bound, then passes. `is_integer`, `is_float`, `is_atom`, `is_list` are `integer/1`,
+  `float/1`, `atom/1`, `list/1`: like the patterns they suspend on an unbound input (or an
+  expression with an unbound operand, as `guard` does) and fail the clause on another type. They follow KLIC, not Python: `True` is not an integer, `1.0`
+  is a float and not an integer, and `[]` is an atom, not a list (`list/1` is a cons cell;
+  match `[]` with `empty`). The `is_` prefix keeps Python's `float` and `list` unshadowed.
 - **Merge** `merge(*streams)` — KL1's fair many-to-one channel as an expression: pass it to a
   consumer or bind an output with `tell(out, merge(xs, ys))`; dynamic fan-in is nesting,
   `tell(ins, merge(in1, in2))`.
@@ -419,7 +426,8 @@ In `examples/` (each also an executable test asserting the KL1 result):
   processes**, each wired to four neighbours by two streams per direction and advancing with
   **no world clock** (a cell steps as soon as one state from each neighbour has arrived).
   Exercises torus wiring by unification (`connect_row`, `make_col`'s wrap clauses), 1444
-  long-lived processes and ~173 000 data-flow reductions; `go(120, 38, 38)` = 711,
+  long-lived processes and ~173 000 data-flow reductions (`rand_0_or_1`'s `integer/1`
+  guards are `is_integer`); `go(120, 38, 38)` = 711,
   cross-checked against a lockstep Python simulation on six shapes.
 - **`turtles.py`** — `turtles.kl1` (E. Tick's turtles card puzzle, "layered streams: nil
   check"): nine head/tail turtle cards laid on a 3×3 grid as **one layered stream**, built
@@ -439,7 +447,7 @@ In `examples/` (each also an executable test asserting the KL1 result):
   every point is the barrier that releases `Go = go` only once every request is acknowledged
   (the **short-circuit termination** idiom, Appendix B item 6); then `Stop` rounds of read-all / count / write-all that sweep the block as a wavefront. The
   port adds a result list so each of the 144 nodes (D = 6) reports its final state, `1 + Stop`;
-  the 2-vectors are `io/2` structs, `wait(Sync)` is `empty`, `integer(L)` is `guard(v >= 0)`.
+  the 2-vectors are `io/2` structs, `wait(Sync)` is `wait`, `integer(L)` is `is_integer`.
 
 **N-Queens two ways (`kkqueen` vs `qlay`).** The two ports solve the same problem with
 different KL1 idioms:

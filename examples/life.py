@@ -56,8 +56,7 @@ Substitutions, each noted where it happens:
   read, so ``DivX``, ``DivY``, ``Config``, ``TX``, ``TY`` and the ``X`` / ``Y`` counters of
   ``make_row`` / ``make_col`` (used only by ``compute_node``) are omitted: ``life(G, X, Y, R)``.
   Clause docstrings below show the clauses in that reduced arity.
-- The ``integer/1`` guards of ``rand_0_or_1`` are dropped: ``tell`` already waits for its
-  operands, and here they are always bound.
+- The ``integer/1`` guards of ``rand_0_or_1`` are ``is_integer``.
 - ``:=`` steps (``G1 := G-1``, ``~(Y-1)``, ``T := ...``) are explicit ``tell``s into fresh
   variables, as in the original, rather than nested expressions.
 - The ``change`` table is kept as its ten clauses; it is the closed form ``Y = (X + T + 1) mod 2``.
@@ -67,7 +66,7 @@ same torus and rule -- what the test compares it against. Run it with
 ``uv run python examples/life.py`` (the original's 120 generations of a 38-by-38 torus).
 """
 
-from python_kl1.dsl import Relation, Term, clause, cons, empty, fresh, guard, nil, tell, uncons
+from python_kl1.dsl import Relation, Term, clause, cons, empty, fresh, guard, is_integer, nil, tell, uncons
 
 
 class Rand01(Relation):
@@ -79,6 +78,9 @@ class Rand01(Relation):
 
         ... NewNum := (PrevNum >> 3) + (X << 2) + (Y >> 2), Rand := NewNum mod 2.
         """
+        is_integer(x)
+        is_integer(y)
+        is_integer(prev)
         tell(new, prev // 8 + x * 4 + y // 4)  # >> 3, << 2, >> 2 on non-negative ints
         tell(rand, new % 2)
 

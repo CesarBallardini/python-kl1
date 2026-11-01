@@ -133,9 +133,8 @@ Substitutions, in source order:
   :func:`links` destructures a point's six at once, as ``pt``'s head does;
 - ``acknowledged/3`` and ``acknowledged/4`` are two relations (a ``Relation``'s clauses share
   one arity), ``Acknowledged`` and ``BothAcknowledged``;
-- ``integer(L)`` is ``guard(v >= 0)``: states are counts, so the comparison is the type test,
-  and like the original it is what makes ``checklist`` wait for the neighbour's value;
-- ``wait(Sync)`` is ``empty(sync)`` -- ``checklist`` binds ``Sync`` to ``[]``;
+- ``integer(L)`` is ``is_integer(v)``, and ``wait(Sync)`` is ``wait(sync)``; the type guard
+  is what makes ``checklist`` wait for the neighbour's value, as in the original;
 - ``go``'s ``otherwise`` is an ``@otherwise`` clause;
 - KL1's ``L``/``R`` are ``left``/``right`` (``l`` is not a usable Python name).
 
@@ -156,6 +155,7 @@ from python_kl1.dsl import (
     empty,
     fresh,
     guard,
+    is_integer,
     nil,
     otherwise,
     session,
@@ -163,6 +163,7 @@ from python_kl1.dsl import (
     tell,
     uncons,
     unstruct,
+    wait,
 )
 
 type Pair = tuple[Term, Term]
@@ -221,7 +222,7 @@ class CheckList(Relation):
     def one(self, vals: Term, sync: Term) -> None:
         """checklist([L|Ls],Sync) :- integer(L) | checklist(Ls,Sync)."""
         v, vs = uncons(vals)
-        guard(v >= 0)  # integer(L): a state is a count, so this is the type test -- and the wait for V
+        is_integer(v)
         self(vs, sync)
 
     @clause
@@ -237,7 +238,7 @@ class Show(Relation):
     @clause
     def step(self, sync: Term, i: Term, j: Term, k: Term, vals: Term, s: Term, ns: Term) -> None:
         """show(Sync,I,J,K,L,S,NS) :- wait(Sync) | NS := S + 1."""
-        empty(sync)  # wait(Sync): checklist binds Sync to [], so the [] pattern is the wait
+        wait(sync)
         tell(ns, s + 1)
 
 

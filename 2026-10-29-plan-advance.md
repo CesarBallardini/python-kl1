@@ -512,3 +512,22 @@ guard taking `mod` of a negative number, and division by zero still raising. 15 
 failed on the old code. The examples divide only non-negative numbers, so their results are
 unchanged. Left open in §7: `+ - *` still mix ints and floats, where KLIC separates `:=` and
 `$:=` and never converts implicitly.
+
+**Phase 4b (2026-11-01).** Landed as specified, with one deviation the KLIC sources settle:
+`list/1` is a cons cell only and `[]` is an atom (`kl1c/tests/types/list_edge.kl1`: `list([])`
+is false; `KLIC.info`: `[]` is "a special atom"), so `is_list` passes on `Cons` alone and
+`is_atom` on a `str` or `NIL`, where the spec had `is_list` take `NIL`. `dsl.py` has no
+`__all__`, so the spec's `__all__` step was the module docstring only. The five guards and the
+three existing patterns share one `_bound(term)` helper (resolve, suspend on a `Var`); routing
+`uncons` through it adds about 0.06 µs to a 0.8 µs call, and `mastermind` (22 s), `life` (9 s) and `wave`
+(1 s) stay within their usual times. Beyond `wave.py`, `life.py`'s `rand_0_or_1` gets back the
+original's three `integer/1` guards, which the port had dropped for want of a type test. The
+tests found that a guard given an expression with an unbound operand (`wait(x + 1)`)
+raised `TypeError` from the arithmetic instead of suspending; `_bound` now suspends on an
+expression's unbound operands, as `Cond.check` does for `guard`. Tests, 187 → 252: KLIC's
+`type_checks` and `wait` cases, every guard over ten values (integers including 10**30,
+floats including `1.0`, an atom, `[]`, a cons cell, `True`, a functor), each guard suspending
+on an unbound input rather than failing, `wait` through a chain of unbound variables, guards
+on expressions (three of these failed before the fix), and a stream classified element by
+element as it arrives. Types: `test_logicvar.py`'s waiter logs were `list[object]`, now
+`list[Value]`. Every example's result is unchanged.

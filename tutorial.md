@@ -77,6 +77,8 @@ from python_kl1.dsl import (
     guard, tell, fresh,              # clause body basics
     uncons, empty, cons, nil,        # list patterns [H|T] / []
     struct, unstruct,                # functor patterns  name(args)
+    wait, is_integer, is_float,      # wait(X) and the type guards
+    is_atom, is_list,                #   integer/1, float/1, atom/1, list/1
     merge,                           # many-to-one: fan several streams into one
     session,                         # the lazy/dataflow entry point
 )
@@ -381,6 +383,9 @@ Everything you write inside a clause body comes from this small set:
 | `cons(h, t)` / `nil()` | Build `[h\|t]` / `[]` (for `tell`) | — |
 | `struct(name, *args)` | Build a functor `name(args)` (for `tell`) | — |
 | `unstruct(term, name, arity)` → tuple | Destructure functor `name(...)` | **suspends** if unbound; **fails** on wrong name/arity/type |
+| `wait(term)` | KL1 `wait(X)`: pass once `term` is bound, whatever its value | **suspends** until bound; never fails |
+| `is_integer(term)` / `is_float(term)` | Type guards `integer(X)` / `float(X)` | **suspends** if unbound; **fails** on another type (`True` and `1.0` are not integers) |
+| `is_atom(term)` / `is_list(term)` | Type guards `atom(X)` (a `str`, or `[]`) / `list(X)` (a cons cell `[H\|T]`) | **suspends** if unbound; **fails** on another type — `[]` is an atom, not a list, as in KLIC |
 | `merge(*streams)` → merged stream | Fair many-to-one merge (KL1 `merge`) | forwards each element as its input binds; closes once **all** inputs have closed |
 | `@otherwise` (instead of `@clause`) | Default clause (KL1 `otherwise.`): tried only once every clause above it has **failed** | **waits** while any clause above is suspended; mark only the first clause after each `otherwise.` |
 
@@ -393,8 +398,8 @@ The arithmetic is KL1's, not Python's, where the two differ. `//` and `%` are KL
 
 The suspend-vs-fail distinction is the heart of it: **fail** rejects *this clause* (try the
 next one); **suspend** parks the *whole goal* until more data arrives, then retries from the
-top. You rarely trigger these explicitly — they fall out of `guard`, `uncons`, `empty`, and
-`unstruct` doing the right thing on unbound data.
+top. You rarely trigger these explicitly — they fall out of `guard`, `uncons`, `empty`,
+`unstruct`, `wait` and the type guards doing the right thing on unbound data.
 
 > **Escape hatch.** For lower-level stream work outside the DSL, `python_kl1.core` also
 > exposes `open_stream`, `put`, `close`, `each`, `collect`, `map_stream`, `filter_stream`,

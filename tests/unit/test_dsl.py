@@ -4,6 +4,7 @@ import gc
 import math
 import re
 from fractions import Fraction
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -35,6 +36,10 @@ from python_kl1.dsl import (
     empty,
     fresh,
     guard,
+    is_atom,
+    is_float,
+    is_integer,
+    is_list,
     merge,
     nil,
     otherwise,
@@ -43,7 +48,13 @@ from python_kl1.dsl import (
     tell,
     uncons,
     unstruct,
+    wait,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from python_kl1.core import Value
 
 
 class _Not(Relation):
@@ -817,3 +828,211 @@ def test_telling_a_float_to_a_variable_bound_to_an_int_fails() -> None:
 
         with pytest.raises(UnificationError):  # unification compares types: 1 is not 1.0
             engine.run()
+
+
+# --- wait and the type guards -------------------------------------------------
+
+type _TypeGuard = Callable[[Term], None]
+"""``wait`` or a type guard: it passes, fails the clause, or suspends the goal."""
+
+
+class _TypeOf(Relation):
+    """KLIC's tests/types/type_checks.kl1: ``t(X,R) :- atom(X) | R=atom.`` and so on."""
+
+    @clause
+    def atom(self, x: Term, r: Term) -> None:
+        is_atom(x)
+        tell(r, 'atom')
+
+    @clause
+    def integer(self, x: Term, r: Term) -> None:
+        is_integer(x)
+        tell(r, 'integer')
+
+    @clause
+    def float(self, x: Term, r: Term) -> None:
+        is_float(x)
+        tell(r, 'float')
+
+    @clause
+    def list(self, x: Term, r: Term) -> None:
+        is_list(x)
+        tell(r, 'list')
+
+
+def _passes(test: _TypeGuard) -> Relation:
+    """A relation answering 'passes' when ``test`` passes and 'fails' once it fails."""
+
+    class _Passes(Relation):
+        @clause
+        def yes(self, x: Term, r: Term) -> None:
+            test(x)
+            tell(r, 'passes')
+
+        @otherwise
+        def no(self, x: Term, r: Term) -> None:
+            tell(r, 'fails')
+
+    return _Passes()
+
+
+_CELL = Cons(1, NIL)
+_SAMPLES: list[Value] = [42, -3, _BIG, 1.5, 1.0, 'foo', NIL, _CELL, True, Struct('f', (1,))]
+_PASSING: dict[_TypeGuard, list[Value]] = {
+    is_integer: [42, -3, _BIG],
+    is_float: [1.5, 1.0],
+    is_atom: ['foo', NIL],  # KLIC: [] is the special atom that ends a list
+    is_list: [_CELL],  # KLIC: list([]) is false
+    wait: _SAMPLES,
+}
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ('value', 'expected'), [('foo', 'atom'), (42, 'integer'), (1.5, 'float'), (Cons(1, Cons(2, NIL)), 'list')]
+)
+def test_type_guards_match_klic(value: Value, expected: str) -> None:
+    assert _TypeOf()(value) == expected
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('test', list(_PASSING), ids=lambda test: test.__name__)
+@pytest.mark.parametrize('value', _SAMPLES, ids=repr)
+def test_a_type_guard_passes_only_its_own_type(test: _TypeGuard, value: Value) -> None:
+    # `is`, not `in`: Python has True == 1 and 1.0 == 1, which KL1 tells apart
+    expected = 'passes' if any(value is passing for passing in _PASSING[test]) else 'fails'
+
+    assert _passes(test)(value) == expected
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('test', list(_PASSING), ids=lambda test: test.__name__)
+def test_a_type_guard_suspends_until_its_input_binds(test: _TypeGuard) -> None:
+    with session() as engine:
+        x, result = Var(), Var()
+        _passes(test)(x, result)
+        engine.run()
+
+        assert not is_bound(result)  # suspended: had the guard failed, the default would have committed
+        assert len(engine.blocked) == 1
+
+        unify(x, _PASSING[test][0])
+        engine.run(check=True)
+
+    assert deref(result) == 'passes'
+
+
+class _Ready(Relation):
+    """KLIC's tests/sync/wait.kl1: ``w(X,R) :- wait(X) | R=X.``"""
+
+    @clause
+    def go(self, x: Term, r: Term) -> None:
+        wait(x)
+        tell(r, x)
+
+
+@pytest.mark.unit
+def test_wait_passes_a_bound_value_on() -> None:
+    assert _Ready()('ready') == 'ready'
+
+
+@pytest.mark.unit
+def test_wait_suspends_through_a_chain_of_unbound_variables() -> None:
+    with session() as engine:
+        x, y, result = Var(), Var(), Var()
+        unify(x, y)  # x is now an alias of y: both still unbound
+        _Ready()(x, result)
+        engine.run()
+        assert not is_bound(result)
+
+        unify(y, 'ready')
+        engine.run(check=True)
+
+    assert deref(result) == 'ready'
+
+
+class _WaitForSum(Relation):
+    @clause
+    def go(self, x: Term, r: Term) -> None:
+        wait(x + 1)
+        tell(r, 'ready')
+
+
+class _DoubleIsInteger(Relation):
+    @clause
+    def yes(self, x: Term, r: Term) -> None:
+        is_integer(x * 2)
+        tell(r, 'integer')
+
+    @otherwise
+    def no(self, x: Term, r: Term) -> None:
+        tell(r, 'not an integer')
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ('relation', 'value', 'expected'),
+    [(_WaitForSum(), 4, 'ready'), (_DoubleIsInteger(), 3, 'integer'), (_DoubleIsInteger(), 1.5, 'not an integer')],
+)
+def test_a_type_guard_on_an_expression_waits_for_its_operands(relation: Relation, value: Value, expected: str) -> None:
+    with session() as engine:
+        x, result = Var(), Var()
+        relation(x, result)
+        engine.run()  # suspends, as guard(x + 1 > 2) would, instead of doing arithmetic on a Var
+        assert not is_bound(result)
+
+        unify(x, value)
+        engine.run(check=True)
+
+    assert deref(result) == expected
+
+
+class _Kinds(Relation):
+    """Classify a stream's elements by type, one clause per guard, as each one arrives."""
+
+    @clause
+    def integer(self, xs: Term, out: Term) -> None:
+        x, rest = uncons(xs)
+        is_integer(x)
+        tail = fresh()
+        tell(out, cons('integer', tail))
+        self(rest, tail)
+
+    @clause
+    def atom(self, xs: Term, out: Term) -> None:
+        x, rest = uncons(xs)
+        is_atom(x)
+        tail = fresh()
+        tell(out, cons('atom', tail))
+        self(rest, tail)
+
+    @clause
+    def list(self, xs: Term, out: Term) -> None:
+        x, rest = uncons(xs)
+        is_list(x)
+        tail = fresh()
+        tell(out, cons('list', tail))
+        self(rest, tail)
+
+    @clause
+    def done(self, xs: Term, out: Term) -> None:
+        empty(xs)
+        tell(out, nil())
+
+
+@pytest.mark.unit
+def test_type_guards_classify_a_stream_element_by_element() -> None:
+    with session() as engine:
+        xs, out = Var(), Var()
+        _Kinds()(xs, out)
+        tail = xs
+        for value in [7, 'a', NIL, Cons(1, NIL), -2]:
+            engine.run()  # the reader waits on the open tail, not on a guard that guessed
+            assert len(engine.blocked) == 1
+            rest = Var()
+            unify(tail, Cons(value, rest))
+            tail = rest
+        unify(tail, NIL)
+        engine.run(check=True)
+
+    assert to_list(out) == ['integer', 'atom', 'atom', 'list', 'integer']
