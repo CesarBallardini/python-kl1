@@ -35,8 +35,9 @@ findings and design notes distilled from the KLIC reference implementation.
   quiescence `engine.blocked` names the goals still waiting for data; `run(check=True)`
   raises `DeadlockError` if any remain, and an eager call with no answer does so too.
 - **Clause DSL** — write predicates as `Relation` subclasses whose clauses are methods:
-  committed choice, guards that suspend on unbound data, `[H|T]` / `[]` list patterns, and
-  `@otherwise` default clauses that wait until every clause above them has failed.
+  committed choice, guards that suspend on unbound data, `[H|T]` / `[]` list patterns, KL1's
+  `wait` and type guards (`is_integer`, `is_float`, `is_atom`, `is_list`), and `@otherwise`
+  default clauses that wait until every clause above them has failed.
 
 ## Quickstart
 

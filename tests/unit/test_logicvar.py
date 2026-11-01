@@ -4,7 +4,7 @@ import pytest
 
 from python_kl1.core import Engine
 from python_kl1.core.logicvar import UnificationError, Var, bind, deref, is_bound, unify
-from python_kl1.core.terms import NIL, Atom, Cons, Struct
+from python_kl1.core.terms import NIL, Atom, Cons, Struct, Value
 
 
 @pytest.mark.unit
@@ -60,7 +60,7 @@ def test_var_to_var_alias_then_bind_propagates() -> None:
 def test_binding_wakes_a_suspended_goal() -> None:
     engine = Engine()
     x = Var()
-    log: list[object] = []
+    log: list[Value] = []
 
     engine.when_bound(x, lambda: log.append(deref(x)))
     engine.run()  # nothing yet -- x is unbound, goal is parked
@@ -76,7 +76,7 @@ def test_when_bound_runs_immediately_if_already_bound() -> None:
     engine = Engine()
     x = Var()
     bind(x, 1)
-    log: list[object] = []
+    log: list[Value] = []
 
     engine.when_bound(x, lambda: log.append(deref(x)))
     engine.run()
@@ -129,7 +129,7 @@ def test_aliasing_transfers_a_parked_waiter() -> None:
     engine = Engine()
     a = Var()
     b = Var()
-    log: list[object] = []
+    log: list[Value] = []
 
     engine.when_bound(a, lambda: log.append(deref(a)))
     unify(a, b)  # a's parked waiter must move onto b

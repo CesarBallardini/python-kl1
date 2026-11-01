@@ -29,6 +29,10 @@ expressions (``n - 1``, ``r1 * n``) and guards (``n == 1``, ``n > 1``):
 - ``fresh()`` makes a new logic variable (as a Term, so it composes with operators);
 - ``uncons`` / ``empty`` are the list head patterns ``[H|T]`` / ``[]``; ``cons`` /
   ``nil`` construct list cells for ``tell``;
+- ``wait(x)`` is KL1's ``wait(X)``, suspending until ``x`` is bound; ``is_integer``,
+  ``is_float``, ``is_atom`` and ``is_list`` are the type guards ``integer(X)``,
+  ``float(X)``, ``atom(X)`` and ``list(X)`` (the ``is_`` prefix keeps Python's
+  ``float`` and ``list`` unshadowed);
 - ``merge(*streams)`` is KL1's many-to-one ``merge``: a fair fan-in of several streams
   into one (``tell(out, merge(xs, ys))`` binds an output to it);
 - ``@otherwise`` (in place of ``@clause``) is KL1's ``otherwise.``: that clause, and those
@@ -309,6 +313,21 @@ def _resolve(term: Term) -> Value:
     return _value(term)
 
 
+def _bound(term: Term) -> Value:
+    """``term``'s value for a head pattern or type guard: suspend the goal while it is unbound.
+
+    An expression (``x + 1``) is unbound while any operand is, as in :meth:`Cond.check`.
+    """
+    if isinstance(term._node, _Op):
+        pending = _pending_vars(term)
+        if pending:
+            raise _ClauseSuspend(pending)
+    value = _resolve(term)
+    if isinstance(value, Var):
+        raise _ClauseSuspend([value])
+    return value
+
+
 def _as_value(term_or_value: Operand) -> Value:
     """The underlying logic object of a term (its Var or value), for building cells."""
     if isinstance(term_or_value, Term):
@@ -383,9 +402,7 @@ def uncons(term: Term) -> tuple[Term, Term]:
     Returns ``(head, tail)`` if ``term`` is a cons cell; **suspends** the goal if it is
     still unbound; **fails** the clause if it is anything else (e.g. the empty list).
     """
-    value = _resolve(term)
-    if isinstance(value, Var):
-        raise _ClauseSuspend([value])
+    value = _bound(term)
     if isinstance(value, Cons):
         return _wrap(value.head), _wrap(value.tail)
     raise _ClauseFail
@@ -397,12 +414,8 @@ def empty(term: Term) -> None:
     Succeeds if ``term`` is the empty list; **suspends** the goal if it is still unbound;
     **fails** the clause otherwise (e.g. a cons cell).
     """
-    value = _resolve(term)
-    if isinstance(value, Var):
-        raise _ClauseSuspend([value])
-    if value is NIL:
-        return
-    raise _ClauseFail
+    if _bound(term) is not NIL:
+        raise _ClauseFail
 
 
 def cons(head: Operand, tail: Operand) -> Term:
@@ -433,12 +446,56 @@ def unstruct(term: Term, name: str, arity: int) -> tuple[Term, ...]:
 
         (amount,) = unstruct(msg, 'deposit', 1)
     """
-    value = _resolve(term)
-    if isinstance(value, Var):
-        raise _ClauseSuspend([value])
+    value = _bound(term)
     if isinstance(value, Struct) and value.name == name and len(value.args) == arity:
         return tuple(_wrap(arg) for arg in value.args)
     raise _ClauseFail
+
+
+def wait(term: Term) -> None:
+    """KL1's ``wait(X)``: **suspends** the goal until ``term`` is bound, then passes.
+
+    The explicit form of the wait every pattern does implicitly -- a barrier on a value
+    whose content does not matter, such as a ``[]`` or ``go`` token.
+    """
+    _bound(term)
+
+
+def is_integer(term: Term) -> None:
+    """Type guard ``integer(X)``: passes on an integer.
+
+    **Suspends** while ``term`` is unbound; **fails** the clause on anything else -- a
+    float, an atom, a list, ``True`` or ``False``.
+    """
+    if not _is_integer(_bound(term)):
+        raise _ClauseFail
+
+
+def is_float(term: Term) -> None:
+    """Type guard ``float(X)``: passes on a float; **suspends** while unbound; **fails** otherwise."""
+    if not isinstance(_bound(term), float):
+        raise _ClauseFail
+
+
+def is_atom(term: Term) -> None:
+    """Type guard ``atom(X)``: passes on a symbolic atom -- a ``str``, or ``[]``.
+
+    ``[]`` counts, as in KLIC, where it is the special atom that ends a list. **Suspends**
+    while ``term`` is unbound; **fails** the clause on anything else.
+    """
+    value = _bound(term)
+    if not (isinstance(value, str) or value is NIL):
+        raise _ClauseFail
+
+
+def is_list(term: Term) -> None:
+    """Type guard ``list(X)``: passes on a cons cell ``[H|T]``.
+
+    ``[]`` does *not* pass -- in KLIC it is an atom (see :func:`is_atom`); match it with
+    :func:`empty`. **Suspends** while ``term`` is unbound; **fails** the clause otherwise.
+    """
+    if not isinstance(_bound(term), Cons):
+        raise _ClauseFail
 
 
 def merge(*streams: Operand) -> Term:
