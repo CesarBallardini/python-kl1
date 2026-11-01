@@ -1,12 +1,14 @@
 """Unit tests for the KL1-style clause DSL (class-based relations)."""
 
 import gc
+import re
 
 import pytest
 
 from python_kl1.core import (
     NIL,
     Cons,
+    DeadlockError,
     Engine,
     NoMatchingClauseError,
     Struct,
@@ -19,6 +21,7 @@ from python_kl1.core import (
     to_list,
     unify,
 )
+from python_kl1.core.goal import show
 from python_kl1.dsl import (
     Relation,
     Term,
@@ -642,3 +645,55 @@ def test_a_guard_free_fallback_commits_early_where_otherwise_waits() -> None:
 
     assert deref(early) == 'other'
     assert deref(waited) == 'zero'
+
+
+class _Forget(Relation):
+    @clause
+    def go(self, x: Term, r: Term) -> None:
+        pass  # commits without ever binding r
+
+
+@pytest.mark.unit
+def test_an_eager_query_reports_a_deadlock() -> None:
+    unknown = Var()
+
+    with pytest.raises(DeadlockError, match=r'_Not\(') as caught:
+        _Not()(unknown)  # both guards wait on `unknown`, which nothing will bind
+
+    (blocked,) = caught.value.blocked
+    assert blocked.startswith(f'_Not({show(unknown)}, ')
+
+
+@pytest.mark.unit
+def test_an_eager_query_that_never_binds_its_answer_returns_the_variable() -> None:
+    assert isinstance(_Forget()(1), Var)
+
+
+@pytest.mark.unit
+def test_a_session_reports_a_deadlock_only_when_asked() -> None:
+    with session() as engine:
+        _Not()(Var(), Var())
+        engine.run()  # quiescence alone is not an error in a session
+
+        with pytest.raises(DeadlockError, match=r'^1 goal\(s\) blocked'):
+            engine.run(check=True)
+
+
+@pytest.mark.unit
+def test_a_blocked_expression_is_described_without_evaluating_it() -> None:
+    with session() as engine:
+        _Not()(fresh() + 1, Var())
+        engine.run()
+
+        (blocked,) = engine.blocked
+    assert re.fullmatch(r'_Not\(_[0-9a-f]{6} \+ 1, _[0-9a-f]{6}\)', blocked)
+
+
+@pytest.mark.unit
+def test_a_finished_stream_pipeline_leaves_nothing_blocked() -> None:
+    with session() as engine:
+        result = Var()
+        _Sieve()(stream_from(engine, range(2, 12)), result)
+        engine.run(check=True)
+
+    assert to_list(result) == [2, 3, 5, 7, 11]

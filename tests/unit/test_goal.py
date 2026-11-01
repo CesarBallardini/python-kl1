@@ -5,9 +5,12 @@ import gc
 import pytest
 
 from python_kl1.core import (
+    NIL,
+    Cons,
     Engine,
     NoMatchingClauseError,
     Predicate,
+    Struct,
     Value,
     Var,
     bind,
@@ -20,6 +23,7 @@ from python_kl1.core import (
     suspend,
     unify,
 )
+from python_kl1.core.goal import show
 
 
 def _sum(x: Value, y: Value) -> Value:
@@ -262,3 +266,56 @@ def test_predicate_repr_shows_name_and_count() -> None:
     text = repr(predicate)
     assert 'p' in text
     assert '1' in text
+
+
+@pytest.mark.unit
+def test_a_blocked_goal_is_described_by_its_predicate_and_arguments() -> None:
+    engine = Engine()
+    unknown = Var()
+    result = Var()
+
+    call(engine, _make_not(), unknown, result)
+    engine.run()
+
+    assert engine.blocked == (f'not({show(unknown)}, {show(result)})',)
+
+
+@pytest.mark.unit
+def test_a_waiting_bind_from_is_described_by_what_it_awaits() -> None:
+    engine = Engine()
+    a = Var()
+    b = Var()
+    out = Var()
+    bind(a, 3)
+
+    bind_from(engine, [a, b], _sum, out)
+    engine.run()
+
+    assert engine.blocked == (f'{show(out)} := ... (waiting for {show(b)})',)
+
+
+@pytest.mark.unit
+def test_show_keeps_a_long_stream_short() -> None:
+    stream: Value = NIL
+    for i in range(100_000):  # far deeper than the recursion limit
+        stream = Cons(i, stream)
+
+    assert show(stream) == '[99999, 99998, 99997, 99996, 99995|...]'
+
+
+@pytest.mark.unit
+def test_show_renders_variables_lists_and_structs() -> None:
+    unknown = Var()
+
+    assert show(unknown) == repr(unknown).removeprefix('Var(').removesuffix(')')
+    assert show(Cons(1, Cons(2, NIL))) == '[1, 2]'
+    assert show(Cons(1, unknown)) == f'[1|{show(unknown)}]'
+    assert show(Struct('f', (1, 'a', NIL))) == "f(1, 'a', [])"
+
+
+@pytest.mark.unit
+def test_show_bounds_depth_and_width() -> None:
+    nested = Struct('f', (Struct('g', (Struct('h', (Struct('i', ()),)),)),))
+
+    assert show(nested) == 'f(g(h(...)))'
+    assert show('x' * 100) == "'" + 'x' * 56 + '...'

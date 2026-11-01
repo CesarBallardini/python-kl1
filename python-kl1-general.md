@@ -256,10 +256,18 @@ import-linter:
 - **`core/logicvar.py`** — the single synchronization primitive. `Var` is write-once with a
   per-variable **wake-list**; `unify` is union-find + structural (recurses into `Cons` and
   `Struct`, name/arity checked); plus `deref`, `bind`, `is_bound`. Binding a variable fires
-  its wake-list — the sole act of communication.
+  its wake-list — the sole act of communication. `Var.label` (`_xxxxxx`) names an unbound
+  variable in its `repr` and in deadlock reports, so a shared one is recognisable.
 - **`core/engine.py`** — a cooperative, deterministic **interleaving scheduler** (a FIFO of
   runnable thunks; §3.11 of the book): `spawn`, `step`, `run`, `when_bound`, and a context
-  manager that runs to quiescence on exit.
+  manager that runs to quiescence on exit. It also keeps a registry of the **blocked** goals
+  (the book's *B*): every suspension registers itself under a lazy description and
+  unregisters on wake — clause goals and `bind_from` through `goal.retry_when_any_bound`,
+  stream readers (`each`, `map_stream`, `filter_stream`, `merge_streams`, so `drain` and the
+  DSL's `merge` too) through `stream._await`. At quiescence
+  `engine.blocked` names what is left. `run(check=True)` and the eager call raise
+  `DeadlockError` when that list is non-empty; plain `run()` stays quiet, because a session
+  may still bind the missing inputs.
 - **`core/stream.py`** — streams as incremental `Cons` lists over a `Var`: `stream_from`,
   `put`/`close`, `Producer` (context-manager write-end), `each`/`collect`/`drain`
   (`drain` is a lazy Python iterator), `map_stream`/`filter_stream`, `merge_streams` (KL1's
@@ -755,7 +763,8 @@ Syntax: a clause is `head :- guard | body.` — `:-…|` is the **commit** opera
   `false`). Search, negation, all-solutions must be **programmed** as explicit streams.
 - **Runtime state = `<R,B,I>`.** Structure the scheduler around multisets of **R**educible /
   **B**locked / **I**rreducible goals; done when R is empty (may be non-terminating);
-  B-nonempty-with-R-empty = deadlock to detect and report.
+  B-nonempty-with-R-empty = deadlock to detect and report. *Done:* `Engine.blocked` is B,
+  and `run(check=True)` and the eager call report a deadlock as `DeadlockError` (§5.1).
 - **Priority is the only built-in control lever — and it is weak.** Provide `@priority`, FIFO
   within a band, and inheritance-by-parameter — but note the book's warning that agents also
   need resource ownership, real-time facilities, and failure handling; leave hooks.

@@ -7,7 +7,7 @@ The concurrency substrate: single-assignment logic variables
 client-server, futures -- is meant to be built as patterns on top of these.
 """
 
-from python_kl1.core.engine import Engine, Goal
+from python_kl1.core.engine import DeadlockError, Engine, Goal
 from python_kl1.core.goal import (
     Commit,
     NoMatchingClauseError,
@@ -41,6 +41,7 @@ __all__ = [
     'Atom',
     'Commit',
     'Cons',
+    'DeadlockError',
     'Engine',
     'Goal',
     'Nil',

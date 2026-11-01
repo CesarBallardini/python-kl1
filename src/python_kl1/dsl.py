@@ -51,8 +51,8 @@ from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING, ClassVar
 
-from python_kl1.core.engine import Engine
-from python_kl1.core.goal import NoMatchingClauseError, bind_from, retry_when_any_bound
+from python_kl1.core.engine import DeadlockError, Engine
+from python_kl1.core.goal import NoMatchingClauseError, bind_from, retry_when_any_bound, show
 from python_kl1.core.logicvar import Var, deref, unify
 from python_kl1.core.stream import merge_streams
 from python_kl1.core.terms import NIL, Cons, Struct
@@ -65,6 +65,14 @@ if TYPE_CHECKING:
 
 type Operand = Term | Value
 """What a clause may combine or bind: a DSL :class:`Term` or a raw logic value."""
+
+type ClauseMethod = Callable[..., None]
+"""A clause as written: a :class:`Relation` method, ``self`` first, then one term per argument.
+
+``...`` because the arity is the relation's own; a fixed signature would reject every clause."""
+
+type BoundClause = Callable[..., None]
+"""A :data:`ClauseMethod` bound to its relation instance: it takes just the goal's arguments."""
 
 
 # --- expression / guard term algebra ---------------------------------------
@@ -428,13 +436,13 @@ class _ClauseMethod:
 
     __slots__ = ('fn', 'otherwise')
 
-    def __init__(self, fn: Callable[..., None], *, otherwise: bool) -> None:
+    def __init__(self, fn: ClauseMethod, *, otherwise: bool) -> None:
         """Hold the underlying clause method ``fn`` and whether it opens an ``otherwise`` group."""
         self.fn = fn
         self.otherwise = otherwise
 
 
-def clause(method: Callable[..., None]) -> _ClauseMethod:
+def clause(method: ClauseMethod) -> _ClauseMethod:
     """Mark a :class:`Relation` method as a clause (decorator).
 
     Clauses are collected, in definition order, when the subclass is created; the first
@@ -443,7 +451,7 @@ def clause(method: Callable[..., None]) -> _ClauseMethod:
     return _ClauseMethod(method, otherwise=False)
 
 
-def otherwise(method: Callable[..., None]) -> _ClauseMethod:
+def otherwise(method: ClauseMethod) -> _ClauseMethod:
     """Mark a clause as the first one after KL1's ``otherwise.`` (decorator).
 
     It -- and every clause after it -- is tried only once every clause *above* it has
@@ -481,13 +489,13 @@ class Relation:
         factorial(5)                # 120
     """
 
-    _clause_methods: ClassVar[tuple[Callable[..., None], ...]] = ()
+    _clause_methods: ClassVar[tuple[ClauseMethod, ...]] = ()
     _otherwise_at: ClassVar[frozenset[int]] = frozenset()
 
-    def __init_subclass__(cls, **kwargs: object) -> None:
+    def __init_subclass__(cls) -> None:
         """Collect the subclass's clause-marked methods, in definition order."""
-        super().__init_subclass__(**kwargs)
-        methods: list[Callable[..., None]] = []
+        super().__init_subclass__()
+        methods: list[ClauseMethod] = []
         otherwise_at: set[int] = set()
         for name, value in list(vars(cls).items()):
             if isinstance(value, _ClauseMethod):
@@ -501,7 +509,7 @@ class Relation:
     def __init__(self) -> None:
         """Bind this instance's clauses (each becomes a callable taking the goal args)."""
         self.name: str = type(self).__name__
-        self._clauses: list[Callable[..., None]] = [partial(method, self) for method in self._clause_methods]
+        self._clauses: list[BoundClause] = [partial(method, self) for method in self._clause_methods]
 
     def __call__(self, *args: Operand) -> Value | None:
         """Query a relation, or spawn a sub-goal.
@@ -515,6 +523,10 @@ class Relation:
         stack -- ``rel(*args)`` instead **spawns** a goal with exactly the arguments given
         (you pass the output variables) and returns ``None``; the results are futures you
         read with ``deref`` once you drive the engine.
+
+        An eager query whose answer is still unbound while goals wait for data that nothing
+        will produce is deadlocked: it raises :class:`~python_kl1.core.engine.DeadlockError`
+        naming them. One that simply never binds its answer returns the unbound ``Var``.
         """
         if _ENGINE_STACK:
             call(_engine(), self, *args)
@@ -523,7 +535,10 @@ class Relation:
         result = Var()
         call(engine, self, *args, result)
         engine.run()
-        return deref(result)
+        answer = deref(result)
+        if isinstance(answer, Var) and (blocked := engine.blocked):
+            raise DeadlockError(blocked)
+        return answer
 
     def __repr__(self) -> str:
         return f'{type(self).__name__}({len(self._clauses)} clauses)'
@@ -562,7 +577,24 @@ def _reduce(engine: Engine, relation: Relation, args: tuple[Operand, ...], wrapp
         return  # committed -- the body has already run
     if not waiting:
         raise NoMatchingClauseError(f'{relation.name}{args!r}')
-    retry_when_any_bound(engine, waiting, partial(_reduce, engine, relation, args, wrapped))
+    retry_when_any_bound(
+        engine, waiting, partial(_reduce, engine, relation, args, wrapped), partial(_describe, relation, wrapped)
+    )
+
+
+def _describe(relation: Relation, wrapped: list[Term]) -> str:
+    """Describe a blocked ``relation`` goal for a deadlock report."""
+    return f'{relation.name}({", ".join(_show_term(term) for term in wrapped)})'
+
+
+def _show_term(term: Term) -> str:
+    """Render a term without evaluating it: an expression's leaves may still be unbound."""
+    node = term._node
+    if isinstance(node, _Ref):
+        return show(node.var)
+    if isinstance(node, _Const):
+        return show(node.value)
+    return f'{_show_term(node.left)} {node.op} {_show_term(node.right)}'
 
 
 @contextmanager

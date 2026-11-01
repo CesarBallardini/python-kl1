@@ -31,7 +31,9 @@ findings and design notes distilled from the KLIC reference implementation.
   both the sole act of communication and the sole wake-up signal.
 - **`Stream`** — an incremental list over logic variables; the KL1 dataflow channel.
 - **`Engine`** — a cooperative, deterministic scheduler that interleaves goals until
-  quiescence. Also a context manager (`with Engine() as engine: ...` runs on exit).
+  quiescence. Also a context manager (`with Engine() as engine: ...` runs on exit). At
+  quiescence `engine.blocked` names the goals still waiting for data; `run(check=True)`
+  raises `DeadlockError` if any remain, and an eager call with no answer does so too.
 - **Clause DSL** — write predicates as `Relation` subclasses whose clauses are methods:
   committed choice, guards that suspend on unbound data, `[H|T]` / `[]` list patterns, and
   `@otherwise` default clauses that wait until every clause above them has failed.

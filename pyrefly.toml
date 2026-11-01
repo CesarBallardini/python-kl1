@@ -10,7 +10,11 @@
 
 project-includes = ["src", "tests", "examples"]
 # pyrefly can't resolve the root-level `examples.*` package without also exposing `src`
-# as a duplicate `src.python_kl1.*` package, so the one test that imports the example
-# programs is excluded here; pyright type-checks it instead.
-project-excludes = ["tests/unit/test_examples.py"]
+# as a duplicate `src.python_kl1.*` package, so the tests that import the example
+# programs (directly, or through `tests.unit.test_examples`) are excluded here;
+# pyright type-checks them instead.
+project-excludes = [
+    "tests/unit/test_examples.py",
+    "tests/integration/test_examples_leave_nothing_blocked.py",
+]
 python-version = "3.14"
