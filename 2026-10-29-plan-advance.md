@@ -17,7 +17,7 @@
 
 **Starting state.** `feat/merge-primitive` is pushed with two commits — `1d3d9aa feat: add
 merge…` and `04db774 feat: port life, mastermind, puzzle, wave and pp…` (the latter also carries
-the `uv.lock` bump). Untracked: the project guide and this plan. Sixteen examples; every KLIC
+the `uv.lock` bump). This plan was not yet tracked. Sixteen examples; every KLIC
 example the current primitives allow is ported.
 
 Every phase below has the same shape — *Preconditions → Steps (do / check) → Verification →
@@ -36,7 +36,7 @@ this file passes it once tracked).
 | # | Do | Check |
 | --- | --- | --- |
 | 0.1 | Open the PR for `feat/merge-primitive`. Title (two `feat` commits, so GitHub's default would be wrong): `feat: add the merge primitive and port the remaining KLIC examples`. Body: the two commit bodies. | CI green on all three workflows; squash-merge; delete the branch. |
-| 0.2 | Keep the project guide untracked: append its file name to `.git/info/exclude` (clone-local, never committed). Decide whether this plan is tracked (recommended: yes, in this PR). | `git status` shows only what you intend. |
+| 0.2 | Keep clone-local notes out of the repository with a clone-local exclude, never committed. Decide whether this plan is tracked (recommended: yes, in this PR). | `git status` shows only what you intend. |
 | 0.3 | `python-kl1-general.md` §5.1: replace "see the README architecture appendix" with a pointer to §5.4 and the README's *Layout* section. Header goal (l. 4): "write multi-threaded programs in the *KL1 style*" → "write concurrent programs in the *KL1 style*", since the library runs many lightweight processes on one cooperative engine (§5.3), not OS threads. | Link targets exist; no remaining line presents threads as the substrate. |
 | 0.4 | §7: split "Still open" into *Decided in §5.3, worth revisiting* (scheduler, guard safety, unification, value layer) and *Open*. | No bullet lost. |
 | 0.5 | §6 `wave.py` bullet and §8 checklist (l. 703): short-circuit termination is demonstrated by `wave`'s `done` token; tick (1)–(3) and (6). | — |
@@ -59,7 +59,7 @@ has to be usable from there. Object model: `core/terms.py` (`Cons`, `Struct`), `
 
 | # | Do | Check |
 | --- | --- | --- |
-| 1.1 | Baseline script in the scratchpad: wall time, `tracemalloc` peak and the number of collections (`gc.callbacks`) for `mastermind go(2, 3)` / `go(3, 3)`, `life(30, 20, 20)` / `(120, 38, 38)`, `puzzle go()`, `pp(12)`. | Table recorded in *Review*. |
+| 1.1 | Baseline script, kept outside the repository: wall time, `tracemalloc` peak and the number of collections (`gc.callbacks`) for `mastermind go(2, 3)` / `go(3, 3)`, `life(30, 20, 20)` / `(120, 38, 38)`, `puzzle go()`, `pp(12)`. | Table recorded in *Review*. |
 | 1.2 | Profile the tracked population at `mastermind go(2, 3)`'s peak: `len(gc.get_objects())` and a `Counter` of type names. | Tells whether the structural variant (1.6) can pay. |
 | 1.3 | Variant A — raise `gc.set_threshold` inside a private `_gc_relief()` context manager used by `run()`; save and restore. Python 3.14's incremental collector changes what the thresholds mean: measure, do not assume. | Timing + peak vs baseline. |
 | 1.4 | Variant B — `gc.freeze()` on entering `run()`, `gc.unfreeze()` on leaving. | Same. |
@@ -100,7 +100,7 @@ defaults each wait for everything above them (differs from KL1's `otherwise. c1.
 | 2.6 | Port `turtles.kl1` → `examples/turtles.py` (fork, role-first brief). Facts from the original: `go(4, A)` — **N = 4** solutions, `A` their list; three `otherwise.` sites — `filter` (after the same-card skip clause), `send`, `flip`; `send`'s default reads `T`, the output of a concurrently running `filter`, so a guard-free fallback *would* commit early — this is the case `@otherwise` exists for; **`N-T` in `rearrange1` is the functor `-(N, T)`, build it with `struct('-', n, t)`, never `n - t`**; the atom `begin` seeds the layered stream (`guard(x == 'begin')`); guard unifications `card(J,_,_,_,_) = C` are `unstruct(c, 'card', 5)` + `guard(j2 == j)`; the solutions are 9-element lists of `-(N, T)` structs, cross-check with a brute-force Python packer; test budget ≲ 5 s, else a reduced constraint set with its own reference. | `go()` count 4; solution shape asserted. |
 | 2.7 | Convert, each faithful to its `.kl1`, running `pytest -k <name>` after each file: `qlay.py` (`Filter.keep` l. 59, `LastFilter.keep` l. 110 → `@otherwise`); `puzzle.py` (`Match.no_fit`, `DirectPiece.no_fit`, `Play.skip`); `wave.py` (`Go.refuse`); `mastermind.py` (`Loop.deeper` keeps its own guards and becomes `@otherwise`, `Loop.exhausted` drops its guards; `Check` → one `@otherwise` fallback; `Exact.miss`, `Delete.skip`, `GenGuess.more` drop the negated guards; `Inexact` regains its directive — `done` and `step` become defaults). Module docstrings: the "rendered by hand" paragraphs go. | 92, 65, 144 × 3, 860 unchanged. |
 | 2.8 | Re-time `mastermind` and `puzzle` (fewer guard evaluations expected). | Not slower. |
-| 2.9 | Docs: §2.2, §4 table (`otherwise` ✓), §5.2 bullet, §6 bullets (qlay/puzzle/mastermind/wave rewritten, `turtles` added), §7 (rule-of-thumb bullet → resolved), Appendix C intro "Seventeen", C.1 `turtles` ✓, C.4 blockers (drop `otherwise`); `tutorial.md` §9 (replace the trap bullet with "a guard-free fallback is *not* an otherwise — use `@otherwise`") and §7 table; `README.md` concepts line; the project guide's semantics bullet and public-API list. | Attribution grep. |
+| 2.9 | Docs: §2.2, §4 table (`otherwise` ✓), §5.2 bullet, §6 bullets (qlay/puzzle/mastermind/wave rewritten, `turtles` added), §7 (rule-of-thumb bullet → resolved), Appendix C intro "Seventeen", C.1 `turtles` ✓, C.4 blockers (drop `otherwise`); `tutorial.md` §9 (replace the trap bullet with "a guard-free fallback is *not* an otherwise — use `@otherwise`") and §7 table; `README.md` concepts line. | Attribution grep. |
 | 2.10 | Gate chain; examples loop. | — |
 
 **Acceptance:** 2.6, 2.7, 2.8 and the five new tests. **Handover:** branch, commit, PR titled as
@@ -131,7 +131,7 @@ bound its output) keeps returning the `Var`, documented. `session()` and `__exit
 | 3.4 | `run(check=True)`; eager-path raise in `Relation.__call__`. | `test_dsl.py`. |
 | 3.5 | Performance budget: `mastermind go(2, 3)` before/after; accept ≤ 5 % slower, else cheaper records. | Numbers in *Review*. |
 | 3.6 | Tests: `test_engine.py` (registry fills on suspend, empties on wake, `check=True` raises, plain `run()` quiet); `test_dsl.py` (eager raise with a goal that waits forever; the sieve and merge tests still quiet; message text); `examples/life.py` — delete `life_count`'s `TypeError` guard, now redundant. | Green. |
-| 3.7 | Docs: `tutorial.md` §9 deadlock bullet rewritten around `engine.blocked` / `check=True`, §4 eager-call note; §5.1 engine bullet; §8's `<R,B,I>` implication marked done; `README.md` concepts; the project guide's API list (`DeadlockError`). | — |
+| 3.7 | Docs: `tutorial.md` §9 deadlock bullet rewritten around `engine.blocked` / `check=True`, §4 eager-call note; §5.1 engine bullet; §8's `<R,B,I>` implication marked done; `README.md` concepts. | — |
 
 **Acceptance:** 3.5 and 3.6. **Handover** as usual.
 
@@ -153,7 +153,7 @@ pass), `is_integer`, `is_float`, `is_atom` (a `str`), `is_list` (`Cons` or `NIL`
 prefix keeps `float`/`list` unshadowed. `__all__`, module docstring. Then `wave.py`:
 `Show.step` `empty(sync)` → `wait(sync)`, `CheckList.one` `guard(v >= 0)` → `is_integer(v)`.
 Tests in `test_dsl.py`; docs: §4 table (`wait` ✓), §5.2 bullet, §6 `wave` bullet, `tutorial.md`
-§7 guard table, the project guide's API list.
+§7 guard table.
 
 ---
 
@@ -168,7 +168,7 @@ Tests in `test_dsl.py`; docs: §4 table (`wait` ✓), §5.2 bullet, §6 `wave` b
 | 5.3 | DSL: `with priority(n):` and `with lower_priority():` context managers around spawns in a body — a priority stack consulted by `call()`; spawned goals inherit (the book's inheritance by parameter); `self(...)` unchanged. | `test_dsl.py` scoping tests. |
 | 5.4 | Tests: `test_engine.py` (ordering across bands, FIFO within), the Ch. 6 livelock scenario (a "found" announcer at higher priority stops expansion). | Green. |
 | 5.5 | Ports: `examples/prio.py` — `p([N|T]) :- print(N)@priority(N)` over 0..9 filled in order; expected order per 5.1. `examples/primesp.py` — `sieve.py` with `lower_priority()` around the generator; **168 primes ≤ 1000**, and the generator's lead (produced-but-unconsumed) measured by a probe is bounded where the plain FIFO lets it run ahead. | Both asserted in `test_examples.py`. |
-| 5.6 | Docs: §3.5, §5.1–5.3, §7, C.1 rows (`prio`, `primesp` ✓), C.4 blockers; `tutorial.md` new subsection; the project guide. | — |
+| 5.6 | Docs: §3.5, §5.1–5.3, §7, C.1 rows (`prio`, `primesp` ✓), C.4 blockers; `tutorial.md` new subsection. | — |
 
 ---
 
@@ -258,8 +258,8 @@ the eager path in `Relation.__call__` (l. 481); `core/stream.py` and `core/goal.
 | 7.7 | `tutorial.md` section "Writing an engine plugin": the protocol, the capabilities, the entry-point snippet for `pyproject.toml`, running the suite with `--engine=<yours>`. | Snippet tested by 7.2's third-party case. |
 
 **Docs:** §5.1 engine bullet (plugins), §5.3 substrate note ("the default, not the only one"),
-`tooling.md` (`--engine`, `PYTHON_KL1_ENGINE`, the CI matrix), `README.md` concepts, the project
-guide's layer diagram and API list (`python_kl1.engines`). **Acceptance:** the suite is
+`tooling.md` (`--engine`, `PYTHON_KL1_ENGINE`, the CI matrix), `README.md` concepts, the §5.1
+layer diagram (`python_kl1.engines`). **Acceptance:** the suite is
 unchanged on `cooperative`, and a dummy third-party plugin registered in a test runs through
 the whole selection path.
 
@@ -279,7 +279,7 @@ phase changes that claim, not the semantics. Stdlib only, no new dependency.
 | 8.5 | Demonstration in `tutorial.md` (a new section), not in `examples/`, which stays reserved for ports of the originals. | — |
 
 **Docs:** `tutorial.md` new section and the I/O bullet at l. 414; §5.3; §7 bullet (asyncio part
-answered); `README.md` concepts; the project guide's API list. **Acceptance:** 8.1–8.4.
+answered); `README.md` concepts. **Acceptance:** 8.1–8.4.
 
 ### Phase 9 — the `threads` plugin, for free-threaded Python
 
@@ -300,8 +300,8 @@ multi-core answer for the default build.
 | 9.8 | CI: a `pytest-ft` job in `pytest.yml` on `3.14t`, unit tests only, with `--engine=threads`. | Green on push. |
 
 **Docs:** §5.3 and §7 (threads answered, with the table); `tutorial.md` "CPU-bound speedup"
-bullet (l. 412) rewritten from the numbers; `tooling.md` (the `3.14t` job); `README.md`; the
-project guide. **Acceptance:** 9.4 on both builds, 9.6 recorded, 9.7 decided.
+bullet (l. 412) rewritten from the numbers; `tooling.md` (the `3.14t` job); `README.md`.
+**Acceptance:** 9.4 on both builds, 9.6 recorded, 9.7 decided.
 
 ### Phase 10 — the `greenlet` plugin, optional
 
@@ -322,7 +322,7 @@ registry still lists `greenlet`, as unavailable, with the install hint.
 | 10.5 | **Decision gate:** keep it if it is faster on some example or makes a Phase 6 fragment simpler to write; otherwise record the numbers in §5.3 and drop the branch unmerged. | — |
 
 **Docs (if kept):** §5.3, §7 (the open question closed), `tutorial.md`, `tooling.md` (the
-extra), `README.md`, the project guide.
+extra), `README.md`.
 
 ### Phase 11 — the `multiprocessing` plugin, with node placement
 
@@ -358,7 +358,7 @@ placement behaves exactly like `cooperative` on node 0. Two consequences shape t
 | 11.9 | **Decision gate:** land as supported only if some example reaches ≥ 2× at 4 nodes, start-up included. Otherwise stop and report; experimental or dropped is your call. | — |
 
 **Docs:** §3 (distributed KLIC findings), §5.3, §7, `tutorial.md` section on placement,
-`README.md`, `tooling.md` (the Windows `spawn` notes), the project guide's API list (`node`).
+`README.md`, `tooling.md` (the Windows `spawn` notes).
 **Acceptance:** 11.7, 11.8 recorded, 11.9 decided.
 
 ---
@@ -375,6 +375,16 @@ library's purpose).
 - Forks: role first, one writable file, no shared-file edits, report instead of integrate.
 - No repository-mutating git; exact commands handed over; branch per phase; PR title = commit
   subject; no attribution anywhere.
+- After every step and every phase, ask: "can you think of unit tests, bdd tests,
+  integration tests and / or e2e tests to verify this code?" Answer it before moving on:
+  the cases per kind, the ones written, and why any kind does not apply.
+- After every step and every phase, also ask: "can you improve the type hinting of the code in
+  the repo?" Type vars, protocols, interfaces, type aliases, classes, mixins, etc. A type that
+  works as a DTO takes the `Dto` suffix. `Any`, `object`, `undefined`, `unknown` are in general
+  a red flag.
+- Before committing a phase or a step, update the documentation to match the code and its
+  comments. The docs live at the repository root, not in a `docs/` folder: `README.md`,
+  `tutorial.md`, `python-kl1-general.md`, `tooling.md`, `CONTRIBUTING.md` and this plan.
 - Test budget ≲ 5 s per new test; `main()` keeps each original's full size.
 
 ## Review
@@ -389,7 +399,7 @@ Appendix A, which is why 0.3–0.6 waited for it. 0.3–0.6 landed as written, p
 "README appendix" pointer in `tooling.md`. The §8 checklist marks (2) fair-merge only: nothing
 implements a biased merge yet (it needs Phase 5).
 
-**Phase 1 (2026-10-29).** Steps 1.1–1.2 ran as planned (scratchpad scripts; peak working set
+**Phase 1 (2026-10-29).** Steps 1.1–1.2 ran as planned (throwaway scripts outside the repository; peak working set
 instead of `tracemalloc`, which would have distorted the timings). At `mastermind go(2, 3)`'s
 peak, 2.1 M objects are tracked, mostly closure cells and functions. Variants, wall time ·
 peak working set:
@@ -426,3 +436,48 @@ order included, 2.3 s at full size so the test runs the original. A guard-free `
 gives 4 but takes 50.2 s — the nil check is what prunes. Conversions kept every result (92, 65,
 144 × 3, 860, 81). Timings back to back (2.8): `mastermind go(3, 3)` 26.3 → 22.3 s (the negated
 guards no longer run), `puzzle go()` 8.4 → 8.4 s.
+
+**Phase 3 (2026-11-01).** The registry, `DeadlockError`, `run(check=True)` and the eager-path
+raise landed as designed. Deviations: no `Blocked(describe, variables)` record — the registry
+is an insertion-ordered dict keyed by the description callable itself (the variables were
+never needed for the report); the waiter is a slotted `_Wake` object instead of a closure, the
+Phase 1 lesson applied; `show()` lives in `goal.py` so the raw and DSL layers render arguments
+the same way, and the DSL renders a pending expression (`_xxxxxx + 1`) without evaluating it.
+The spec's premise that `retry_when_any_bound` is the single suspension point was wrong: the
+stream readers (`each`, `map_stream`, `filter_stream`, `merge_streams`, hence `drain` and the
+DSL's `merge`) call `when_bound` directly, so a `merge` on an input nobody closes went
+unreported. `goal` and `stream` are independent siblings under the layer contract, so the
+readers now register through their own `stream._await`, as a slotted `_Reader` that is both
+its description and its waker; `Var.label` gives every report the same `_xxxxxx` name. 3.6:
+`life_count`'s `TypeError` guard stays — it still narrows `Value` to `int` for the type
+checkers and catches the documented case of an answer never bound with nothing blocked.
+
+Tests, 125 → 151 with the ones written as the phase went: engine 8 (registry fills and
+empties, a goal on two variables unblocks once, one that suspends again counts once, one that
+raises on waking is no longer blocked, `check=True` raises, plain `run()` is quiet, the capped
+message, and a pickled `DeadlockError` keeping its message — it came back as `43 goal(s)
+blocked: 2;  ; g; o; …` because unpickling re-ran `__init__` on the formatted text, fixed with
+`__reduce__`, which Phase 11's forwarded exceptions need); goal 5 (descriptions, `show`
+bounds); DSL 5 (eager raise and its unbound-but-nothing-blocked twin, a session raising only
+when asked, a pending expression, a finished sieve); stream 6 (each reader blocked on an open
+tail and released on close, a `merge` naming only its open input, a `drain` left reading). New
+kind: `tests/integration/` (marker `integration`) re-runs all 17 example tests with every
+`Engine.run` forced to `check=True` — none leaves a goal blocked. BDD skipped: a `.feature`
+would restate the DSL tests; e2e is the examples loop in `make qa`.
+
+Types: `Relation.__init_subclass__` loses its `**kwargs: object` (no relation takes class
+keywords); the variadic callables get names — `ClauseMethod` and `BoundClause` in `dsl`,
+`Compute` for `bind_from` — keeping `...`, since each relation has its own arity and a fixed
+signature would reject every clause. `Term.__eq__`/`__ne__` keep their `type: ignore[override]`
+(an operator DSL returns terms, not `bool`). No DTO arose: descriptions are plain strings.
+
+Outside the phase: ruff 0.17 formats Python blocks inside Markdown and would undo the docs'
+column-aligned KL1 comments, so `ruff.toml` excludes `*.md` from `format`.
+
+Performance, back to back against `HEAD` (minimum of repeated runs, two rounds each):
+`mastermind go(2, 3)` 1.209 → 1.221 s and 1.244 → 1.214 s, `go(3, 3)` 22.6 → 22.4 s and
+22.4 → 23.4 s — within noise, inside the 5 % budget. The stream readers are not: every element
+read now parks a registered reader, and `merge_count(400)`, the worst case, went 0.28 → 0.35 s
+(+23 %) with two `partial`s per reader, 0.28 → 0.33 s (+15 %) with the single `_Reader` kept;
+`kkqueen(8)` uses no stream helper and is unchanged. Accepted under the raised budget: a
+deadlock report that misses stream readers would miss the most common deadlock.

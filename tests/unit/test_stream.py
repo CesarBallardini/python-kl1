@@ -1,14 +1,18 @@
 """Unit tests for streams built over logic variables."""
 
+from typing import TYPE_CHECKING
+
 import pytest
 
 from python_kl1.core import (
     NIL,
     Cons,
+    DeadlockError,
     Engine,
     Value,
     close,
     collect,
+    deref,
     drain,
     each,
     filter_stream,
@@ -20,6 +24,9 @@ from python_kl1.core import (
     to_list,
 )
 from python_kl1.core.logicvar import Var
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 @pytest.mark.unit
@@ -218,3 +225,52 @@ def test_nested_merges_fan_in_more_streams() -> None:
 
     assert len(items) == 3
     assert set(items) == {1, 2, 3}
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ('name', 'consume'),
+    [
+        ('each', lambda engine, source: each(engine, source, lambda _: None)),
+        ('map_stream', lambda engine, source: map_stream(engine, source, lambda x: x)),
+        ('filter_stream', lambda engine, source: filter_stream(engine, source, lambda _: True)),
+        ('merge_streams', lambda engine, source: merge_streams(engine, source)),
+    ],
+)
+def test_a_consumer_waiting_on_an_open_stream_is_blocked(
+    name: str, consume: Callable[[Engine, Var], Value | None]
+) -> None:
+    engine = Engine()
+    source = Var()
+    tail = put(source, 1)
+
+    consume(engine, source)
+    engine.run()
+    assert engine.blocked == (f'{name}(waiting on {tail.label})',)  # the element was read; the tail is awaited
+
+    close(tail)
+    engine.run()
+    assert engine.blocked == ()
+
+
+@pytest.mark.unit
+def test_a_merge_waiting_on_one_open_input_reports_only_that_input() -> None:
+    engine = Engine()
+    still_open = Var()
+
+    merged = merge_streams(engine, stream_from(engine, [1, 2]), still_open)
+
+    with pytest.raises(DeadlockError, match=rf'merge_streams\(waiting on {still_open.label}\)'):
+        engine.run(check=True)
+    assert len(engine.blocked) == 1
+    assert deref(merged) is not NIL  # the closed input's elements went through
+
+
+@pytest.mark.unit
+def test_draining_a_stream_that_never_closes_leaves_its_reader_blocked() -> None:
+    engine = Engine()
+    source = Var()
+    put(source, 1)
+
+    assert list(drain(engine, source)) == [1]
+    assert len(engine.blocked) == 1

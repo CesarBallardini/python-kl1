@@ -42,11 +42,16 @@ class Var:
         self.ref: Value | None = None
         self.waiters: list[Callable[[], None]] = []
 
+    @property
+    def label(self) -> str:
+        """A short identity, ``_xxxxxx``, for naming this variable in ``repr`` and reports."""
+        return f'_{id(self) & 0xFFFFFF:06x}'
+
     def __repr__(self) -> str:
         """Show the bound value, or a stable identity for an unbound variable."""
         term = deref(self)
         if term is self:
-            return f'Var(_{id(self) & 0xFFFFFF:06x})'
+            return f'Var({self.label})'
         return f'Var(={term!r})'
 
 

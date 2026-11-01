@@ -38,3 +38,6 @@ max-complexity = 15
 
 [format]
 quote-style = "single"
+# ruff 0.17 also formats the Python blocks inside Markdown; the docs align their
+# KL1-clause comments in a column on purpose, so the formatter leaves them alone.
+exclude = ["*.md"]

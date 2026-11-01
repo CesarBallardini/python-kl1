@@ -153,6 +153,20 @@ This is the "it's just a function" mode. Use it whenever you want one scalar res
 don't care about streaming or overlap. It's the simplest way to drop a relation into
 existing code.
 
+If the query deadlocks, the eager call doesn't hand you back an unbound variable. A
+deadlock means its answer is still unbound when the engine goes quiet while goals wait for
+data that nothing will produce. In that case the call raises `DeadlockError` and names
+those goals:
+
+```python
+from python_kl1.core import Var
+
+factorial(Var())      # DeadlockError: 1 goal(s) blocked at quiescence: Factorial(_0ae0b0, _0af7c0)
+```
+
+A program that finishes without ever binding its answer, with nothing left waiting, still
+returns the unbound `Var`.
+
 ### Session call — for streams, dataflow, and overlap
 
 Inside a `with session() as engine:` block, calling a relation **spawns** it with *exactly*
@@ -447,10 +461,16 @@ data. If the coordination is trivial, you don't need it.
   to drive the engine looks like "my variable is still unbound."
 - **`self(...)` returns `None`.** It spawns a sub-goal; the result comes back through the
   variable you passed, read later with `deref` — it is *not* a Python return value.
-- **Deadlock = quiescence with unbound outputs.** If everything suspends waiting on data
-  nothing will ever produce (e.g. a clause that never gets a base case), the engine simply
-  goes quiet and your future stays unbound. Check that some clause actually *binds* the
-  outputs and terminates.
+- **Deadlock = quiescence with goals still blocked.** If goals suspend waiting on data
+  nothing will ever produce (an input nobody binds, two goals each waiting on the other, a
+  `merge` or `drain` reading a stream nobody closes),
+  the engine goes quiet and your futures stay unbound. It keeps track of the goals that are
+  waiting: after `engine.run()`, `engine.blocked` lists them as `Relation(args…)` strings,
+  with unbound variables shown as `_xxxxxx` so a shared one is recognisable. If you call
+  `engine.run(check=True)` instead, the engine raises `DeadlockError` (from
+  `python_kl1.core`) with the same list in its message and in `.blocked`. An eager call
+  does that check itself (§4). Plain `run()` stays quiet, because a session may still
+  bind those inputs and run again.
 - **`to_list` needs a finished, proper stream;** `deref` gives you whatever a variable holds
   right now (possibly still a `Var`). Use `to_list`/`deref` *after* driving the engine.
 
