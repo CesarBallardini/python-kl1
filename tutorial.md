@@ -387,6 +387,10 @@ Everything you write inside a clause body comes from this small set:
 Arithmetic on terms — `+ - * // %` — builds deferred expressions; comparisons build guards.
 Both are evaluated lazily, only once their variable leaves are bound.
 
+The arithmetic is KL1's, not Python's, where the two differ. `//` and `%` are KL1's `/` and
+`mod`: they take integers only and truncate toward zero, so `-7 // 2` is `-3` (Python says
+`-4`) and `-7 % 3` is `-1` (Python says `2`). `True` and `False` are not numbers.
+
 The suspend-vs-fail distinction is the heart of it: **fail** rejects *this clause* (try the
 next one); **suspend** parks the *whole goal* until more data arrives, then retries from the
 top. You rarely trigger these explicitly — they fall out of `guard`, `uncons`, `empty`, and
