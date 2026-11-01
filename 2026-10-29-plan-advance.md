@@ -140,7 +140,7 @@ bound its output) keeps returning the `Var`, documented. `session()` and `__exit
 ## Phase 4 — fidelity, two small branches
 
 **4a** · `fix/unify-int-float` · `fix: keep ints and floats distinct in unify`
-`core/logicvar.py:103` `if a == b:` → `if type(a) is type(b) and a == b:` (atoms only reach that
+`core/logicvar.py:108` `if a == b:` → `if type(a) is type(b) and a == b:` (atoms only reach that
 line; `bool` becomes its own type, so `True` no longer unifies with `1`, nor `1` with `1.0`).
 Arithmetic guards (`Term.__eq__` → `_compare`) keep Python numeric semantics — KL1's `=:=`.
 Tests in `test_logicvar.py` for both sides; grep the examples for float literals (none expected);
@@ -481,3 +481,15 @@ read now parks a registered reader, and `merge_count(400)`, the worst case, went
 (+23 %) with two `partial`s per reader, 0.28 → 0.33 s (+15 %) with the single `_Reader` kept;
 `kkqueen(8)` uses no stream helper and is unchanged. Accepted under the raised budget: a
 deadlock report that misses stream readers would miss the most common deadlock.
+
+**Phase 4a (2026-11-01).** Landed as specified: `unify` compares an atom's type before its
+value, so `1` and `1.0` clash and `bool` is its own type; arithmetic guards keep comparing by
+value. Before the edit, a patched copy ran the whole suite and every example's `main()` with
+unchanged results, and no example has a float literal. The spec's `logicvar.py:103` had
+drifted to l. 108. Tests, 151 → 166: `test_logicvar.py` 13 (each cross-type pair in both
+orders, through a bound `Var`, inside `Cons` and `Struct`, and equal same-type atoms still
+unifying); `test_dsl.py` 2 (a guard comparing `1` with `1.0` passes, a `tell` of `1.0` to a
+`Var` holding `1` fails). Types: nothing to improve at that line. Found on the way and
+recorded in §7, not changed: the DSL's `//` and `%` floor like Python, while KLIC's `/` and
+`mod` truncate toward zero (`kl1c/tests/arithmetic/int_edge.kl1`: `(-7)/2 = -3`,
+`(-7) mod 3 = -1`); the examples only divide non-negative numbers.

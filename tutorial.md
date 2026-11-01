@@ -447,6 +447,10 @@ data. If the coordination is trivial, you don't need it.
 - **A variable binds once.** Trying to bind an already-bound variable to a conflicting
   value raises a `UnificationError`. "Communication is binding" — design around it, don't
   fight it.
+- **`1` and `1.0` are different values to unification, equal to a guard.** As in KL1,
+  integers and floats are distinct types, and `bool` is not an integer: `tell(r, 1.0)` fails
+  when `r` already holds `1`, and so does `tell(r, True)`. A guard compares numbers by value
+  (KL1's `=:=`), so `guard(x == 1.0)` passes for `x = 1`.
 - **Clause order is behavior.** Committed choice takes the *first* clause whose guards pass.
   Put the specific, guarded clauses first and any guard-free fallback last. There is no
   backtracking to undo a commit.
