@@ -155,6 +155,13 @@ prefix keeps `float`/`list` unshadowed. `__all__`, module docstring. Then `wave.
 Tests in `test_dsl.py`; docs: §4 table (`wait` ✓), §5.2 bullet, §6 `wave` bullet, `tutorial.md`
 §7 guard table.
 
+**4c** · `fix/kl1-integer-division` · `fix: divide and take mod like KLIC, integers only`
+Added after 4a, which found it. `dsl.py` `_arith`: `//` and `%` are KL1's `/` and `mod` —
+integers only, truncating toward zero (`-7 // 2` is `-3`, `-7 % 3` is `-1`) where Python
+floors; `bool` is rejected by all arithmetic. Tests from `kl1c/tests/arithmetic`'s expected
+outputs plus the division identity over signed and big ints; docs: §5.2 bullet, §7 item
+replaced by the open float-arithmetic question, `tutorial.md` §7.
+
 ---
 
 ## Phase 5 — goal priorities
@@ -493,3 +500,15 @@ unifying); `test_dsl.py` 2 (a guard comparing `1` with `1.0` passes, a `tell` of
 recorded in §7, not changed: the DSL's `//` and `%` floor like Python, while KLIC's `/` and
 `mod` truncate toward zero (`kl1c/tests/arithmetic/int_edge.kl1`: `(-7)/2 = -3`,
 `(-7) mod 3 = -1`); the examples only divide non-negative numbers.
+
+**Phase 4c (2026-11-01).** Landed as specified. `_quotient` divides the absolute values and
+fixes the sign, exact for any int (`int(a / b)` and `math.fmod` go through floats and fail
+past 2**53, which the tests' 10**30 operands check); the remainder is `a - b * q`. `TypeIs`
+helpers `_is_integer` and `_is_number` replace the `isinstance` checks that let `bool` in.
+Tests, 166 → 187: the five KLIC cases (`int_arith`, `int_edge`), the identity
+`a == b*q + r` with `|r| < |b|` and `r` taking `a`'s sign over 23 × 22 operand pairs checked
+against `math.trunc(Fraction(a, b))`, floats and bools rejected by `//`/`%`, bools by `+`, a
+guard taking `mod` of a negative number, and division by zero still raising. 15 of them
+failed on the old code. The examples divide only non-negative numbers, so their results are
+unchanged. Left open in §7: `+ - *` still mix ints and floats, where KLIC separates `:=` and
+`$:=` and never converts implicitly.

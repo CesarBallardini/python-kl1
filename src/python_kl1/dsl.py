@@ -49,7 +49,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import partial
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, TypeIs
 
 from python_kl1.core.engine import DeadlockError, Engine
 from python_kl1.core.goal import NoMatchingClauseError, bind_from, retry_when_any_bound, show
@@ -105,18 +105,40 @@ type _Node = _Const | _Ref | _Op
 
 
 def _arith(op: str, left: Value, right: Value) -> Value:
-    """Evaluate an arithmetic node over two resolved values (numbers only)."""
-    if not isinstance(left, int | float) or not isinstance(right, int | float):
+    """Evaluate an arithmetic node over two resolved values.
+
+    ``+ - *`` take numbers. ``//`` and ``%`` are KL1's ``/`` and ``mod``: integers only, and
+    they truncate toward zero as KLIC (C) does -- ``-7 // 2`` is ``-3`` and ``-7 % 3`` is
+    ``-1`` -- where Python would floor. ``bool`` is not a number here, as in unification.
+    """
+    if op in ('//', 'mod'):
+        if not _is_integer(left) or not _is_integer(right):
+            raise TypeError(f'arithmetic {op!r} needs integers, got {left!r} and {right!r}')
+        quotient = _quotient(left, right)
+        return quotient if op == '//' else left - right * quotient
+    if not _is_number(left) or not _is_number(right):
         raise TypeError(f'arithmetic {op!r} needs numbers, got {left!r} and {right!r}')
     if op == '+':
         return left + right
     if op == '-':
         return left - right
-    if op == '*':
-        return left * right
-    if op == 'mod':
-        return left % right
-    return left // right
+    return left * right
+
+
+def _is_integer(value: Value) -> TypeIs[int]:
+    """Whether ``value`` is an int -- not a ``bool``, which Python counts as one."""
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_number(value: Value) -> TypeIs[int | float]:
+    """Whether ``value`` is an int or a float -- not a ``bool``, which Python counts as an int."""
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
+def _quotient(left: int, right: int) -> int:
+    """KL1's integer ``/``: truncate toward zero. Exact for any size, unlike ``int(left / right)``."""
+    quotient = abs(left) // abs(right)
+    return quotient if (left < 0) == (right < 0) else -quotient
 
 
 def _compare(op: str, left: Value, right: Value) -> bool:

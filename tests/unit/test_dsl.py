@@ -1,12 +1,15 @@
 """Unit tests for the KL1-style clause DSL (class-based relations)."""
 
 import gc
+import math
 import re
+from fractions import Fraction
 
 import pytest
 
 from python_kl1.core import (
     NIL,
+    Atom,
     Cons,
     DeadlockError,
     Engine,
@@ -272,8 +275,95 @@ def test_reflected_subtraction() -> None:
 
 
 @pytest.mark.unit
-def test_floor_division() -> None:
+def test_integer_division() -> None:
     assert _FloorDiv()(7) == 3
+
+
+class _Div(Relation):
+    @clause
+    def go(self, a: Term, b: Term, r: Term) -> None:
+        tell(r, a // b)
+
+
+class _Mod(Relation):
+    @clause
+    def go(self, a: Term, b: Term, r: Term) -> None:
+        tell(r, a % b)
+
+
+class _Arith(Relation):
+    @clause
+    def go(self, a: Term, b: Term, r: Term) -> None:
+        tell(r, a + b)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(('a', 'b', 'quotient'), [(7, 3, 2), (-7, 2, -3)])
+def test_division_matches_klic(a: int, b: int, quotient: int) -> None:
+    assert _Div()(a, b) == quotient  # kl1c/tests/arithmetic: int_arith 7/3, int_edge (-7)/2
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(('a', 'b', 'remainder'), [(7, 3, 1), (-7, 3, -1), (7, -3, 1)])
+def test_mod_matches_klic(a: int, b: int, remainder: int) -> None:
+    assert _Mod()(a, b) == remainder  # kl1c/tests/arithmetic: int_arith 7 mod 3, int_edge the others
+
+
+_BIG = 10**30 + 7  # beyond a float's 53-bit mantissa: an int(a / b) shortcut gets these wrong
+_OPERANDS = [*range(-9, 10), _BIG, -_BIG, _BIG * 3 + 1, -(_BIG * 3 + 1)]
+
+
+@pytest.mark.unit
+def test_division_truncates_toward_zero_and_mod_takes_the_dividends_sign() -> None:
+    for a in _OPERANDS:
+        for b in _OPERANDS:
+            if b == 0:
+                continue
+            quotient, remainder = _Div()(a, b), _Mod()(a, b)
+            assert isinstance(quotient, int) and isinstance(remainder, int), (a, b)
+            assert quotient == math.trunc(Fraction(a, b)), (a, b)  # exact, unlike a / b
+            assert a == b * quotient + remainder, (a, b)
+            assert abs(remainder) < abs(b), (a, b)
+            assert remainder == 0 or (remainder < 0) == (a < 0), (a, b)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('relation', [_Div(), _Mod()])
+@pytest.mark.parametrize(('a', 'b'), [(7.5, 2), (7, 2.0), (True, 2), (7, True)])
+def test_division_and_mod_take_integers_only(relation: Relation, a: Atom, b: Atom) -> None:
+    with pytest.raises(TypeError, match='needs integers'):  # KLIC's / and mod are integer operations
+        relation(a, b)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(('a', 'b'), [(True, 1), (1, False)])
+def test_arithmetic_rejects_booleans(a: Atom, b: Atom) -> None:
+    with pytest.raises(TypeError, match='needs numbers'):  # bool is its own type, not an integer
+        _Arith()(a, b)
+
+
+class _Parity(Relation):
+    @clause
+    def odd_negative(self, n: Term, r: Term) -> None:
+        guard(n % 2 == -1)  # KL1: N mod 2 =:= -1 holds for a negative odd N
+        tell(r, 'odd and negative')
+
+    @otherwise
+    def other(self, n: Term, r: Term) -> None:
+        tell(r, 'other')
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(('n', 'expected'), [(-7, 'odd and negative'), (7, 'other'), (-8, 'other')])
+def test_a_guard_takes_mod_like_klic(n: int, expected: str) -> None:
+    assert _Parity()(n) == expected
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('relation', [_Div(), _Mod()])
+def test_division_by_zero_raises(relation: Relation) -> None:
+    with pytest.raises(ZeroDivisionError):
+        relation(7, 0)
 
 
 @pytest.mark.unit

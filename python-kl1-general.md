@@ -301,6 +301,8 @@ class Factorial(Relation):
 - Clause args arrive as **`Term`** objects; their operators build logic expressions
   (`n - 1`, `r1 * n`) and guards (`n == 1`, `n > 1`). Guards suspend on unbound inputs and
   fail the clause when false; `tell` binds (waiting for any unbound vars in the expression).
+  Arithmetic follows KLIC, not Python: `//` and `%` are KL1's `/` and `mod`, integers only,
+  truncating toward zero (`-7 // 2` is `-3`, `-7 % 3` is `-1`); `bool` is not a number.
 - **List patterns** `uncons` / `empty` (`[H|T]` / `[]`) with constructors `cons` / `nil`;
   **functor patterns** `unstruct(term, name, arity)` with constructor `struct(name, *args)`.
 - **Merge** `merge(*streams)` — KL1's fair many-to-one channel as an expression: pass it to a
@@ -500,12 +502,9 @@ remain.
   should offer it as an opt-in (it is process-global state) is open.
 - **Relation inheritance** — clause collection uses a subclass's own methods only, so a
   `Relation` subclass does not inherit a parent's clauses.
-- **Integer division and `mod` round like Python, not like KLIC.** The DSL's `//` and `%` are
-  Python's: they floor, and the remainder takes the divisor's sign. KLIC's `/` and `mod`
-  truncate toward zero, and the remainder takes the dividend's sign
-  (`kl1c/tests/arithmetic/int_edge.kl1`: `(-7)/2 = -3`, `(-7) mod 3 = -1`, `7 mod (-3) = 1`;
-  Python gives `-4`, `2`, `-2`). They agree on non-negative operands, which is all the ported
-  examples use.
+- **Float arithmetic.** `+ - *` still mix ints and floats as Python does, where KLIC keeps
+  integer arithmetic (`:=`) and float arithmetic (`$:=`) apart. Whether the DSL should
+  separate them too is open; `//` and `%` already take integers only (§5.2).
 
 ---
 
